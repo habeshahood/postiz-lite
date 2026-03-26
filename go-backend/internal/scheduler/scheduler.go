@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/habeshahood/postiz-lite/internal/db"
+	"github.com/habeshahood/postiz-lite/internal/social"
 )
 
 // Scheduler replaces the entire Temporal + orchestrator stack.
@@ -26,7 +27,7 @@ func New(store *db.Store) *Scheduler {
 func (s *Scheduler) Start() {
 	s.ticker = time.NewTicker(1 * time.Minute)
 	go s.loop()
-	slog.Info("scheduler started (1-minute poll, replaces Temporal)")
+	slog.Info("scheduler started (1-minute poll, replaces Temporal)", "providers", social.Identifiers())
 }
 
 func (s *Scheduler) Stop() {
@@ -79,12 +80,46 @@ func (s *Scheduler) publishPost(ctx context.Context, post *db.Post) {
 		return
 	}
 
-	// TODO: Phase 2 — call the appropriate SocialProvider.Post() based on integration.ProviderIdentifier
-	// For now, just log and mark as error
-	slog.Warn("scheduler: provider not yet implemented",
+	provider, err := social.Get(integration.ProviderIdentifier)
+	if err != nil {
+		slog.Warn("scheduler: no provider for platform",
+			"postID", post.ID,
+			"provider", integration.ProviderIdentifier,
+		)
+		msg := "Provider not supported: " + integration.ProviderIdentifier
+		s.store.UpdatePostState(ctx, post.ID, db.StateError, &msg)
+		return
+	}
+
+	slog.Info("scheduler: publishing post",
 		"postID", post.ID,
 		"provider", integration.ProviderIdentifier,
+		"integration", integration.Name,
 	)
-	msg := "Provider not yet implemented in postiz-lite"
-	s.store.UpdatePostState(ctx, post.ID, db.StateError, &msg)
+
+	result, err := provider.Post(ctx, post, integration)
+	if err != nil {
+		slog.Error("scheduler: post failed",
+			"postID", post.ID,
+			"provider", integration.ProviderIdentifier,
+			"error", err,
+		)
+		msg := err.Error()
+		s.store.UpdatePostState(ctx, post.ID, db.StateError, &msg)
+		return
+	}
+
+	if err := s.store.UpdatePostPublished(ctx, post.ID, result.PostID, result.ReleaseURL); err != nil {
+		slog.Error("scheduler: failed to update post state after publish",
+			"postID", post.ID,
+			"error", err,
+		)
+		return
+	}
+
+	slog.Info("scheduler: post published",
+		"postID", post.ID,
+		"provider", integration.ProviderIdentifier,
+		"releaseURL", result.ReleaseURL,
+	)
 }

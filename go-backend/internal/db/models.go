@@ -71,22 +71,25 @@ type UserOrganization struct {
 
 // Integration matches the Prisma Integration model.
 type Integration struct {
-	ID                 string     `db:"id"`
-	InternalID         string     `db:"internalId"`
-	OrganizationID     string     `db:"organizationId"`
-	Name               string     `db:"name"`
-	Picture            *string    `db:"picture"`
-	ProviderIdentifier string     `db:"providerIdentifier"`
-	Type               string     `db:"type"`
-	Token              string     `db:"token"`
-	Disabled           bool       `db:"disabled"`
-	TokenExpiration    *time.Time `db:"tokenExpiration"`
-	RefreshToken       *string    `db:"refreshToken"`
-	Profile            *string    `db:"profile"`
-	DeletedAt          *time.Time `db:"deletedAt"`
-	CreatedAt          time.Time  `db:"createdAt"`
-	UpdatedAt          *time.Time `db:"updatedAt"`
-	RefreshNeeded      bool       `db:"refreshNeeded"`
+	ID                    string     `db:"id"`
+	InternalID            string     `db:"internalId"`
+	OrganizationID        string     `db:"organizationId"`
+	Name                  string     `db:"name"`
+	Picture               *string    `db:"picture"`
+	ProviderIdentifier    string     `db:"providerIdentifier"`
+	Type                  string     `db:"type"`
+	Token                 string     `db:"token"`
+	Disabled              bool       `db:"disabled"`
+	TokenExpiration       *time.Time `db:"tokenExpiration"`
+	RefreshToken          *string    `db:"refreshToken"`
+	Profile               *string    `db:"profile"`
+	DeletedAt             *time.Time `db:"deletedAt"`
+	CreatedAt             time.Time  `db:"createdAt"`
+	UpdatedAt             *time.Time `db:"updatedAt"`
+	InBetweenSteps        bool       `db:"inBetweenSteps"`
+	RefreshNeeded         bool       `db:"refreshNeeded"`
+	CustomInstanceDetails *string    `db:"customInstanceDetails"`
+	AdditionalSettings    *string    `db:"additionalSettings"`
 }
 
 // Post matches the Prisma Post model.
@@ -97,11 +100,15 @@ type Post struct {
 	OrganizationID string     `db:"organizationId"`
 	IntegrationID  string     `db:"integrationId"`
 	Content        string     `db:"content"`
+	Delay          int        `db:"delay"`
 	Group          string     `db:"group"`
 	Title          *string    `db:"title"`
+	Description    *string    `db:"description"`
+	ParentPostID   *string    `db:"parentPostId"`
+	ReleaseID      *string    `db:"releaseId"`
+	ReleaseURL     *string    `db:"releaseURL"`
 	Settings       *string    `db:"settings"`
 	Image          *string    `db:"image"`
-	ParentPostID   *string    `db:"parentPostId"`
 	Error          *string    `db:"error"`
 	DeletedAt      *time.Time `db:"deletedAt"`
 	CreatedAt      time.Time  `db:"createdAt"`

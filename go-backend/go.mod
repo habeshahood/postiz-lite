@@ -3,6 +3,7 @@ module github.com/habeshahood/postiz-lite
 go 1.24.10
 
 require (
+	github.com/dghubble/oauth1 v0.7.3
 	github.com/go-chi/chi/v5 v5.2.1
 	github.com/go-chi/cors v1.2.1
 	github.com/golang-jwt/jwt/v5 v5.2.1

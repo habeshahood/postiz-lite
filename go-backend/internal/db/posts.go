@@ -9,7 +9,8 @@ import (
 )
 
 const postCols = `id, state, "publishDate", "organizationId", "integrationId", content,
-		"group", title, settings, image, "parentPostId", error, "deletedAt", "createdAt", "updatedAt"`
+		delay, "group", title, description, "parentPostId", "releaseId", "releaseURL",
+		settings, image, error, "deletedAt", "createdAt", "updatedAt"`
 
 func scanPost(row interface{ Scan(...any) error }) (*Post, error) {
 	p := &Post{}
@@ -20,11 +21,15 @@ func scanPost(row interface{ Scan(...any) error }) (*Post, error) {
 		&p.OrganizationID,
 		&p.IntegrationID,
 		&p.Content,
+		&p.Delay,
 		&p.Group,
 		&p.Title,
+		&p.Description,
+		&p.ParentPostID,
+		&p.ReleaseID,
+		&p.ReleaseURL,
 		&p.Settings,
 		&p.Image,
-		&p.ParentPostID,
 		&p.Error,
 		&p.DeletedAt,
 		&p.CreatedAt,
@@ -45,8 +50,8 @@ func (s *Store) CreatePost(ctx context.Context,
 	q := fmt.Sprintf(`
 		INSERT INTO "Post"
 			(id, state, "publishDate", "organizationId", "integrationId", content,
-			 "group", title, settings, image, "parentPostId", "createdAt", "updatedAt")
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+			 delay, "group", title, settings, image, "parentPostId", "createdAt", "updatedAt")
+		VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8, $9, $10, $11, NOW(), NOW())
 		RETURNING %s`, postCols)
 
 	p, err := scanPost(s.pool.QueryRow(ctx, q,
@@ -156,6 +161,23 @@ func (s *Store) UpdatePostState(ctx context.Context, id string, state State, err
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("UpdatePostState: post %s not found", id)
+	}
+	return nil
+}
+
+// UpdatePostPublished marks a post as PUBLISHED and records the platform post ID + URL.
+func (s *Store) UpdatePostPublished(ctx context.Context, id, releaseID, releaseURL string) error {
+	const q = `
+		UPDATE "Post"
+		SET state = 'PUBLISHED', "releaseId" = $1, "releaseURL" = $2, "updatedAt" = NOW()
+		WHERE id = $3 AND "deletedAt" IS NULL`
+
+	tag, err := s.pool.Exec(ctx, q, releaseID, releaseURL, id)
+	if err != nil {
+		return fmt.Errorf("UpdatePostPublished: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("UpdatePostPublished: post %s not found", id)
 	}
 	return nil
 }

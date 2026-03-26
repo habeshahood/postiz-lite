@@ -10,7 +10,7 @@ import (
 
 const integrationCols = `id, "internalId", "organizationId", name, picture, "providerIdentifier",
 		type, token, disabled, "tokenExpiration", "refreshToken", profile, "deletedAt",
-		"createdAt", "updatedAt", "refreshNeeded"`
+		"createdAt", "updatedAt", "inBetweenSteps", "refreshNeeded", "customInstanceDetails", "additionalSettings"`
 
 func scanIntegration(row interface{ Scan(...any) error }) (*Integration, error) {
 	i := &Integration{}
@@ -30,7 +30,10 @@ func scanIntegration(row interface{ Scan(...any) error }) (*Integration, error) 
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.InBetweenSteps,
 		&i.RefreshNeeded,
+		&i.CustomInstanceDetails,
+		&i.AdditionalSettings,
 	)
 	return i, err
 }
@@ -86,8 +89,9 @@ func (s *Store) CreateIntegration(ctx context.Context,
 	q := fmt.Sprintf(`
 		INSERT INTO "Integration"
 			(id, "internalId", "organizationId", name, "providerIdentifier", type, token,
-			 "refreshToken", "tokenExpiration", disabled, "refreshNeeded", "createdAt", "updatedAt")
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, false, NOW(), NOW())
+			 "refreshToken", "tokenExpiration", disabled, "inBetweenSteps", "refreshNeeded",
+			 "createdAt", "updatedAt")
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, false, false, NOW(), NOW())
 		RETURNING %s`, integrationCols)
 
 	i, err := scanIntegration(s.pool.QueryRow(ctx, q,
