@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -46,7 +48,7 @@ func main() {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{cfg.FrontendURL, "http://localhost:*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "auth", "showorg"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
@@ -55,6 +57,13 @@ func main() {
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// Serve uploaded files from disk
+	uploadDir := os.Getenv("UPLOAD_DIR")
+	if uploadDir == "" {
+		uploadDir = "/uploads"
+	}
+	r.Handle("/uploads/*", http.StripPrefix("/uploads", http.FileServer(http.Dir(uploadDir))))
 
 	// Public API v1 — API key auth (used by Rust postiz_client)
 	r.Route("/api/public/v1", func(r chi.Router) {
@@ -71,6 +80,24 @@ func main() {
 		})
 	})
 
+	// Reverse proxy: everything else → Next.js frontend on FRONTEND_INTERNAL_PORT
+	if cfg.FrontendInternalURL != "" {
+		frontendURL, err := url.Parse(cfg.FrontendInternalURL)
+		if err != nil {
+			slog.Error("invalid FRONTEND_INTERNAL_URL", "url", cfg.FrontendInternalURL, "error", err)
+			os.Exit(1)
+		}
+		proxy := httputil.NewSingleHostReverseProxy(frontendURL)
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+			slog.Warn("frontend proxy error", "path", r.URL.Path, "error", err)
+			http.Error(w, "Frontend unavailable", http.StatusBadGateway)
+		}
+		r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+			proxy.ServeHTTP(w, r)
+		})
+		slog.Info("reverse proxy enabled", "frontendURL", cfg.FrontendInternalURL)
+	}
+
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.Port),
 		Handler:      r,
@@ -80,7 +107,7 @@ func main() {
 	}
 
 	go func() {
-		slog.Info("postiz-lite starting", "port", cfg.Port)
+		slog.Info("postiz-lite starting", "port", cfg.Port, "bind", cfg.BindAddr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
@@ -98,12 +125,13 @@ func main() {
 }
 
 type config struct {
-	DatabaseURL string
-	RedisURL    string
-	Port        int
-	BindAddr    string
-	FrontendURL string
-	JWTSecret   string
+	DatabaseURL         string
+	RedisURL            string
+	Port                int
+	BindAddr            string
+	FrontendURL         string
+	FrontendInternalURL string
+	JWTSecret           string
 }
 
 func loadConfig() config {
@@ -113,14 +141,19 @@ func loadConfig() config {
 	}
 	bindAddr := os.Getenv("BIND_ADDR")
 	if bindAddr == "" {
-		bindAddr = "127.0.0.1" // Safe default: localhost only
+		bindAddr = "127.0.0.1"
+	}
+	frontendInternal := os.Getenv("FRONTEND_INTERNAL_URL")
+	if frontendInternal == "" {
+		frontendInternal = "http://localhost:4200"
 	}
 	return config{
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		RedisURL:    os.Getenv("REDIS_URL"),
-		Port:        port,
-		BindAddr:    bindAddr,
-		FrontendURL: os.Getenv("FRONTEND_URL"),
-		JWTSecret:   os.Getenv("JWT_SECRET"),
+		DatabaseURL:         os.Getenv("DATABASE_URL"),
+		RedisURL:            os.Getenv("REDIS_URL"),
+		Port:                port,
+		BindAddr:            bindAddr,
+		FrontendURL:         os.Getenv("FRONTEND_URL"),
+		FrontendInternalURL: frontendInternal,
+		JWTSecret:           os.Getenv("JWT_SECRET"),
 	}
 }

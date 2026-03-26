@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/habeshahood/postiz-lite/internal/db"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // RegisterAuth mounts authentication routes (public, no JWT required).
@@ -37,8 +38,11 @@ func handleLogin(store *db.Store, jwtSecret string) http.HandlerFunc {
 			return
 		}
 
-		// TODO: verify password with argon2 (Postiz uses argon2id)
-		_ = user
+		// Verify password (Postiz uses bcrypt $2b$)
+		if user.Password == nil || bcrypt.CompareHashAndPassword([]byte(*user.Password), []byte(body.Password)) != nil {
+			http.Error(w, `{"msg":"Invalid credentials"}`, http.StatusUnauthorized)
+			return
+		}
 
 		// Get user's first org
 		orgID, _ := store.GetUserDefaultOrgID(r.Context(), user.ID)
