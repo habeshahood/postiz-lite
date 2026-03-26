@@ -1,0 +1,50 @@
+# postiz-lite: Go backend replacing NestJS + Temporal
+# Shares the same Postgres and Redis as the existing Postiz instance.
+#
+# Usage:
+#   docker compose -f docker-compose.lite.yaml up -d --build
+#
+# To switch traffic from NestJS to Go:
+#   1. Stop the old container:  docker stop postiz-1hood
+#   2. Start this:              docker compose -f docker-compose.lite.yaml up -d
+#   3. Verify:                  curl http://127.0.0.1:5001/health
+
+services:
+  postiz-lite:
+    build:
+      context: ./go-backend
+      dockerfile: Dockerfile
+    container_name: postiz-lite
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5002:5000"
+    environment:
+      DATABASE_URL: "postgresql://postiz-user:postiz-password@postiz-1hood-postgres:5432/postiz-1hood-db"
+      REDIS_URL: "redis://postiz-1hood-redis:6379"
+      JWT_SECRET: "${JWT_SECRET}"
+      FRONTEND_URL: "https://postiz.1h00d.com"
+      PORT: "5000"
+      UPLOAD_DIR: "/uploads"
+      # Social provider keys (same as the NestJS container)
+      X_API_KEY: "${X_API_KEY}"
+      X_API_SECRET: "${X_API_SECRET}"
+      TIKTOK_CLIENT_ID: "${TIKTOK_CLIENT_ID}"
+      TIKTOK_CLIENT_SECRET: "${TIKTOK_CLIENT_SECRET}"
+      YOUTUBE_CLIENT_ID: "${YOUTUBE_CLIENT_ID}"
+      YOUTUBE_CLIENT_SECRET: "${YOUTUBE_CLIENT_SECRET}"
+      FACEBOOK_APP_ID: "${FACEBOOK_APP_ID}"
+      FACEBOOK_APP_SECRET: "${FACEBOOK_APP_SECRET}"
+    volumes:
+      - postiz-1hood-uploads:/uploads
+    networks:
+      - postiz-1hood_postiz-1hood-network
+    mem_limit: 128m
+
+volumes:
+  postiz-1hood-uploads:
+    external: true
+    name: postiz-1hood_postiz-1hood-uploads
+
+networks:
+  postiz-1hood_postiz-1hood-network:
+    external: true

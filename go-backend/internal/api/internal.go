@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -10,18 +11,262 @@ import (
 
 // RegisterInternal mounts all JWT-protected internal API routes (used by Next.js frontend).
 func RegisterInternal(r chi.Router, store *db.Store) {
+	// User
+	r.Get("/user/self", handleSelf(store))
+	r.Get("/user/organizations", handleOrganizations(store))
+	r.Get("/user/personal", handlePersonal(store))
+	r.Get("/user/subscription", handleSubscription())
+	r.Get("/user/subscription/tiers", handleTiers())
+	r.Post("/user/change-org", handleChangeOrg())
+	r.Post("/user/api-key/rotate", handleRotateAPIKey(store))
+
 	// Posts
 	r.Get("/posts", handleInternalListPosts(store))
+	r.Get("/posts/", handleInternalListPosts(store))
 	r.Post("/posts", handleInternalCreatePost(store))
+	r.Post("/posts/", handleInternalCreatePost(store))
+	r.Get("/posts/find-slot", handleFindSlot())
+	r.Get("/posts/find-slot/{id}", handleFindSlot())
+	r.Get("/posts/list", handleInternalListPosts(store))
+	r.Get("/posts/old", handleOldPosts(store))
+	r.Get("/posts/group/{group}", handlePostGroup(store))
+	r.Get("/posts/tags", handleGetTags())
+	r.Delete("/posts/{group}", handleDeletePostGroup(store))
 
 	// Integrations
 	r.Get("/integrations", handleInternalListIntegrations(store))
+	r.Get("/integrations/list", handleIntegrationsList(store))
+	r.Get("/integrations/social/{integration}", handleSocialOAuthURL())
+	r.Get("/integrations/{id}", handleGetIntegration(store))
+	r.Post("/integrations/disable", handleIntegrationToggle(store, true))
+	r.Post("/integrations/enable", handleIntegrationToggle(store, false))
+	r.Delete("/integrations/", handleDeleteIntegrationInternal(store))
+
+	// Notifications
+	r.Get("/notifications", handleNotificationsList())
+	r.Get("/notifications/", handleNotificationsList())
+	r.Get("/notifications/list", handleNotificationsList())
+
+	// Analytics (stub)
+	r.Get("/analytics/{integration}", handleAnalytics())
+	r.Get("/analytics/post/{postId}", handlePostAnalytics())
 
 	// Settings
-	r.Get("/user/self", handleSelf(store))
+	r.Get("/settings/team", handleSettingsTeam(store))
+	r.Get("/settings/shortlink", handleShortlink())
+	r.Get("/settings/signatures", handleSignatures())
 }
 
+// ---- User handlers ----
+
+func handleSelf(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := middleware.GetUser(r)
+		org := middleware.GetOrg(r)
+		if user == nil {
+			http.Error(w, `{"msg":"Not authenticated"}`, http.StatusUnauthorized)
+			return
+		}
+
+		role := db.RoleUser
+		publicAPI := ""
+		if org != nil {
+			if r, err := store.GetUserRoleInOrg(r.Context(), user.ID, org.ID); err == nil {
+				role = r
+			}
+			if role == db.RoleSuperAdmin || role == db.RoleAdmin {
+				if org.APIKey != nil {
+					publicAPI = *org.APIKey
+				}
+			}
+		}
+
+		orgID := ""
+		if org != nil {
+			orgID = org.ID
+		}
+
+		// Match the exact shape the frontend expects from /user/self
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":            user.ID,
+			"email":         user.Email,
+			"name":          user.Name,
+			"lastName":      user.LastName,
+			"providerName":  user.ProviderName,
+			"timezone":      user.Timezone,
+			"activated":     user.Activated,
+			"orgId":         orgID,
+			"totalChannels": 10000,     // No Stripe = unlimited
+			"tier":          "ULTIMATE", // No billing = top tier
+			"role":          role,
+			"isLifetime":    false,
+			"admin":         false,
+			"impersonate":   false,
+			"isTrailing":    false,
+			"allowTrial":    true,
+			"streakSince":   nil,
+			"publicApi":     publicAPI,
+		})
+	}
+}
+
+func handleOrganizations(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := middleware.GetUser(r)
+		if user == nil {
+			http.Error(w, `{"msg":"Not authenticated"}`, http.StatusUnauthorized)
+			return
+		}
+
+		orgs, err := store.GetUserOrganizations(r.Context(), user.ID)
+		if err != nil {
+			http.Error(w, `{"msg":"Internal error"}`, http.StatusInternalServerError)
+			return
+		}
+		if orgs == nil {
+			orgs = []db.UserOrg{}
+		}
+
+		// Shape expected by frontend: array of {id, name, users: [{role, disabled}]}
+		result := make([]map[string]any, 0, len(orgs))
+		for _, o := range orgs {
+			result = append(result, map[string]any{
+				"id":   o.OrgID,
+				"name": o.OrgName,
+				"users": []map[string]any{
+					{"role": o.Role, "disabled": o.Disabled},
+				},
+			})
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func handlePersonal(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := middleware.GetUser(r)
+		if user == nil {
+			http.Error(w, `{"msg":"Not authenticated"}`, http.StatusUnauthorized)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":    user.ID,
+			"email": user.Email,
+			"name":  user.Name,
+		})
+	}
+}
+
+func handleSubscription() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// No Stripe = ULTIMATE tier, unlimited everything
+		writeJSON(w, http.StatusOK, map[string]any{
+			"subscriptionTier": "ULTIMATE",
+			"totalChannels":    10000,
+			"isLifetime":       false,
+		})
+	}
+}
+
+func handleTiers() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []any{})
+	}
+}
+
+func handleChangeOrg() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// In a real impl, this would switch the org cookie.
+		// For now, acknowledge the request.
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
+}
+
+func handleRotateAPIKey(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Stub — would regenerate the org API key
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
+}
+
+// ---- Post handlers ----
+
 func handleInternalListPosts(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+
+		// Calendar view sends ?date=YYYY-MM-DD for month view
+		from := r.URL.Query().Get("from")
+		to := r.URL.Query().Get("to")
+
+		var posts []*db.Post
+		var err error
+		if from != "" && to != "" {
+			posts, err = store.GetPostsByDateRange(r.Context(), org.ID, from, to)
+		} else {
+			posts, err = store.ListPosts(r.Context(), org.ID)
+		}
+
+		if err != nil {
+			http.Error(w, `{"msg":"Internal error"}`, http.StatusInternalServerError)
+			return
+		}
+		if posts == nil {
+			posts = []*db.Post{}
+		}
+
+		// Group posts by their group field (calendar view expects grouped structure)
+		type postGroup struct {
+			Group     string     `json:"group"`
+			Posts     []*db.Post `json:"posts"`
+			State     string     `json:"state"`
+			Date      string     `json:"date"`
+			IntegID   string     `json:"integrationId"`
+		}
+
+		groups := map[string]*postGroup{}
+		for _, p := range posts {
+			g, ok := groups[p.Group]
+			if !ok {
+				g = &postGroup{
+					Group:   p.Group,
+					Posts:   []*db.Post{},
+					State:   string(p.State),
+					Date:    p.PublishDate.Format("2006-01-02T15:04:05.000Z"),
+					IntegID: p.IntegrationID,
+				}
+				groups[p.Group] = g
+			}
+			g.Posts = append(g.Posts, p)
+		}
+
+		result := make([]any, 0, len(groups))
+		for _, g := range groups {
+			result = append(result, g)
+		}
+
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+func handleInternalCreatePost(store *db.Store) http.HandlerFunc {
+	return handleCreatePost(store) // reuse public handler
+}
+
+func handleFindSlot() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Return a default slot — next hour rounded up
+		writeJSON(w, http.StatusOK, map[string]any{
+			"date": "2025-01-01T10:00:00.000Z",
+		})
+	}
+}
+
+func handleOldPosts(store *db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		org := middleware.GetOrg(r)
 		if org == nil {
@@ -33,29 +278,225 @@ func handleInternalListPosts(store *db.Store) http.HandlerFunc {
 			http.Error(w, `{"msg":"Internal error"}`, http.StatusInternalServerError)
 			return
 		}
+		if posts == nil {
+			posts = []*db.Post{}
+		}
 		writeJSON(w, http.StatusOK, posts)
 	}
 }
 
-func handleInternalCreatePost(store *db.Store) http.HandlerFunc {
-	return handleCreatePost(store) // reuse public handler
+func handlePostGroup(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		group := chi.URLParam(r, "group")
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		posts, err := store.ListPosts(r.Context(), org.ID)
+		if err != nil {
+			http.Error(w, `{"msg":"Internal error"}`, http.StatusInternalServerError)
+			return
+		}
+		// Filter by group
+		var grouped []*db.Post
+		for _, p := range posts {
+			if p.Group == group {
+				grouped = append(grouped, p)
+			}
+		}
+		if grouped == nil {
+			grouped = []*db.Post{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"group": group,
+			"posts": grouped,
+		})
+	}
 }
+
+func handleGetTags() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []any{})
+	}
+}
+
+func handleDeletePostGroup(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		group := chi.URLParam(r, "group")
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		// Soft-delete all posts in the group
+		const q = `UPDATE "Post" SET "deletedAt" = NOW(), "updatedAt" = NOW()
+			WHERE "group" = $1 AND "organizationId" = $2 AND "deletedAt" IS NULL`
+		store.Exec(r.Context(), q, group, org.ID)
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
+}
+
+// ---- Integration handlers ----
 
 func handleInternalListIntegrations(store *db.Store) http.HandlerFunc {
 	return handleListIntegrations(store) // reuse public handler
 }
 
-func handleSelf(store *db.Store) http.HandlerFunc {
+func handleIntegrationsList(store *db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user := middleware.GetUser(r)
-		if user == nil {
-			http.Error(w, `{"msg":"Not authenticated"}`, http.StatusUnauthorized)
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"id":    user.ID,
-			"email": user.Email,
-			"name":  user.Name,
+
+		integrations, err := store.ListIntegrations(r.Context(), org.ID)
+		if err != nil {
+			http.Error(w, `{"msg":"Internal error"}`, http.StatusInternalServerError)
+			return
+		}
+
+		// Build response matching the exact shape the frontend expects
+		result := make([]map[string]any, 0, len(integrations))
+		for _, i := range integrations {
+			picture := "/no-picture.jpg"
+			if i.Picture != nil && *i.Picture != "" {
+				picture = *i.Picture
+			}
+
+			additionalSettings := "[]"
+			if i.AdditionalSettings != nil {
+				additionalSettings = *i.AdditionalSettings
+			}
+
+			// Map providerIdentifier to editor type
+			editor := "normal"
+
+			result = append(result, map[string]any{
+				"name":                 i.Name,
+				"id":                   i.ID,
+				"internalId":           i.InternalID,
+				"disabled":             i.Disabled,
+				"editor":               editor,
+				"picture":              picture,
+				"identifier":           i.ProviderIdentifier,
+				"inBetweenSteps":       i.InBetweenSteps,
+				"refreshNeeded":        i.RefreshNeeded,
+				"isCustomFields":       false,
+				"display":              i.Profile,
+				"type":                 i.Type,
+				"time":                 json.RawMessage(`[{"time":120},{"time":400},{"time":700}]`),
+				"changeProfilePicture": false,
+				"changeNickName":       false,
+				"customer":             nil,
+				"additionalSettings":   additionalSettings,
+			})
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"integrations": result,
 		})
+	}
+}
+
+func handleSocialOAuthURL() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Stub — OAuth URL generation will come later
+		integration := chi.URLParam(r, "integration")
+		writeJSON(w, http.StatusOK, map[string]any{
+			"url":          "",
+			"codeVerifier": "",
+			"state":        "",
+			"integration":  integration,
+		})
+	}
+}
+
+func handleGetIntegration(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		id := chi.URLParam(r, "id")
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		integration, err := store.GetIntegrationByID(r.Context(), id, org.ID)
+		if err != nil {
+			http.Error(w, `{"msg":"Not found"}`, http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, integration)
+	}
+}
+
+func handleIntegrationToggle(store *db.Store, disable bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Stub
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
+}
+
+func handleDeleteIntegrationInternal(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			ID string `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+			http.Error(w, `{"msg":"Invalid request"}`, http.StatusBadRequest)
+			return
+		}
+		if err := store.DeleteIntegration(r.Context(), body.ID, org.ID); err != nil {
+			http.Error(w, `{"msg":"Failed to delete"}`, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
+}
+
+// ---- Notification handlers ----
+
+func handleNotificationsList() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []any{})
+	}
+}
+
+// ---- Analytics handlers ----
+
+func handleAnalytics() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []any{})
+	}
+}
+
+func handlePostAnalytics() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []any{})
+	}
+}
+
+// ---- Settings handlers ----
+
+func handleSettingsTeam(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []any{})
+	}
+}
+
+func handleShortlink() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"shortlink": ""})
+	}
+}
+
+func handleSignatures() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []any{})
 	}
 }

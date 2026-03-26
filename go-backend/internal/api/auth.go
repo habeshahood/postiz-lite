@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -71,12 +72,14 @@ func handleLogin(store *db.Store, jwtSecret string) http.HandlerFunc {
 
 func handleMe(store *db.Store, jwtSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Extract token from cookie or header
+		// Extract token from cookie or header (same order as middleware)
 		tokenStr := ""
-		if cookie, err := r.Cookie("auth"); err == nil {
-			tokenStr = cookie.Value
-		} else if auth := r.Header.Get("Authorization"); auth != "" {
+		if auth := r.Header.Get("Authorization"); auth != "" {
+			tokenStr = strings.TrimPrefix(auth, "Bearer ")
+		} else if auth := r.Header.Get("auth"); auth != "" {
 			tokenStr = auth
+		} else if cookie, err := r.Cookie("auth"); err == nil {
+			tokenStr = cookie.Value
 		}
 
 		if tokenStr == "" {

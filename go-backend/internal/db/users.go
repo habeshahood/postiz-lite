@@ -64,8 +64,6 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (*User, error) {
 }
 
 // CreateUser inserts a new User row and returns the created record.
-// Prisma uses uuid() for User.id, so we generate a UUID here.
-// password should be an argon2 hash or nil for OAuth-only users.
 func (s *Store) CreateUser(ctx context.Context, email string, hashedPassword *string, provider Provider, timezone int) (*User, error) {
 	id := uuid.New().String()
 
@@ -110,4 +108,83 @@ func (s *Store) GetUserDefaultOrgID(ctx context.Context, userID string) (string,
 		return "", fmt.Errorf("GetUserDefaultOrgID: %w", err)
 	}
 	return orgID, nil
+}
+
+// GetUserRoleInOrg returns the user's Role within a specific organization.
+func (s *Store) GetUserRoleInOrg(ctx context.Context, userID, orgID string) (Role, error) {
+	const q = `
+		SELECT role
+		FROM "UserOrganization"
+		WHERE "userId" = $1 AND "organizationId" = $2 AND disabled = false
+		LIMIT 1`
+
+	var role Role
+	err := s.pool.QueryRow(ctx, q, userID, orgID).Scan(&role)
+	if err != nil {
+		return "", fmt.Errorf("GetUserRoleInOrg: %w", err)
+	}
+	return role, nil
+}
+
+// UserOrg is a joined result for the user's organizations list.
+type UserOrg struct {
+	OrgID    string  `json:"id"`
+	OrgName  string  `json:"name"`
+	Role     Role    `json:"role"`
+	Disabled bool    `json:"disabled"`
+	APIKey   *string `json:"-"`
+}
+
+// GetUserOrganizations returns all orgs the user belongs to (with role).
+func (s *Store) GetUserOrganizations(ctx context.Context, userID string) ([]UserOrg, error) {
+	const q = `
+		SELECT o.id, o.name, uo.role, uo.disabled, o."apiKey"
+		FROM "UserOrganization" uo
+		JOIN "Organization" o ON o.id = uo."organizationId"
+		WHERE uo."userId" = $1 AND uo.disabled = false
+		ORDER BY uo."createdAt" ASC`
+
+	rows, err := s.pool.Query(ctx, q, userID)
+	if err != nil {
+		return nil, fmt.Errorf("GetUserOrganizations: %w", err)
+	}
+	defer rows.Close()
+
+	var out []UserOrg
+	for rows.Next() {
+		var uo UserOrg
+		if err := rows.Scan(&uo.OrgID, &uo.OrgName, &uo.Role, &uo.Disabled, &uo.APIKey); err != nil {
+			return nil, fmt.Errorf("GetUserOrganizations scan: %w", err)
+		}
+		out = append(out, uo)
+	}
+	return out, rows.Err()
+}
+
+// GetPostsByDateRange returns posts within a date range for the calendar view.
+func (s *Store) GetPostsByDateRange(ctx context.Context, orgID, from, to string) ([]*Post, error) {
+	q := fmt.Sprintf(`
+		SELECT %s
+		FROM "Post"
+		WHERE "organizationId" = $1
+		  AND "publishDate" >= $2::timestamp
+		  AND "publishDate" <= $3::timestamp
+		  AND "deletedAt" IS NULL
+		ORDER BY "publishDate" ASC`, postCols)
+
+	rows, err := s.pool.Query(ctx, q, orgID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("GetPostsByDateRange: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*Post
+	for rows.Next() {
+		p, err := scanPost(rows)
+		if err != nil {
+			return nil, fmt.Errorf("GetPostsByDateRange scan: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }

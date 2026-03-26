@@ -46,8 +46,15 @@ func JWTAuth(secret string, store *db.Store) func(http.Handler) http.Handler {
 
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, UserContextKey, user)
-			if orgID != "" {
-				org, err := store.GetOrgByID(ctx, orgID)
+
+			// The frontend sends 'showorg' header to switch organizations.
+			// If present, use that org instead of the JWT's orgId.
+			activeOrgID := orgID
+			if showOrg := r.Header.Get("showorg"); showOrg != "" {
+				activeOrgID = showOrg
+			}
+			if activeOrgID != "" {
+				org, err := store.GetOrgByID(ctx, activeOrgID)
 				if err == nil {
 					ctx = context.WithValue(ctx, OrgContextKey, org)
 				}
@@ -58,11 +65,15 @@ func JWTAuth(secret string, store *db.Store) func(http.Handler) http.Handler {
 }
 
 func extractToken(r *http.Request) string {
-	// Check Authorization header first
+	// Check Authorization header first (standard)
 	if auth := r.Header.Get("Authorization"); auth != "" {
 		return strings.TrimPrefix(auth, "Bearer ")
 	}
-	// Check cookie (Next.js stores JWT in auth cookie)
+	// Check 'auth' header (Postiz frontend convention)
+	if auth := r.Header.Get("auth"); auth != "" {
+		return auth
+	}
+	// Check cookie (Postiz stores JWT in 'auth' cookie)
 	if cookie, err := r.Cookie("auth"); err == nil {
 		return cookie.Value
 	}

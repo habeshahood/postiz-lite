@@ -72,7 +72,7 @@ func main() {
 	})
 
 	srv := &http.Server{
-		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
+		Addr:         fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.Port),
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 120 * time.Second,
@@ -101,6 +101,7 @@ type config struct {
 	DatabaseURL string
 	RedisURL    string
 	Port        int
+	BindAddr    string
 	FrontendURL string
 	JWTSecret   string
 }
@@ -110,10 +111,15 @@ func loadConfig() config {
 	if p := os.Getenv("PORT"); p != "" {
 		fmt.Sscanf(p, "%d", &port)
 	}
+	bindAddr := os.Getenv("BIND_ADDR")
+	if bindAddr == "" {
+		bindAddr = "127.0.0.1" // Safe default: localhost only
+	}
 	return config{
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		RedisURL:    os.Getenv("REDIS_URL"),
 		Port:        port,
+		BindAddr:    bindAddr,
 		FrontendURL: os.Getenv("FRONTEND_URL"),
 		JWTSecret:   os.Getenv("JWT_SECRET"),
 	}
