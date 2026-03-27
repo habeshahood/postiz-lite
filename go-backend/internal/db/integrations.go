@@ -121,6 +121,53 @@ func (s *Store) UpdateToken(ctx context.Context, id, orgID, token string, refres
 	return nil
 }
 
+// GetExpiringIntegrations returns integrations whose token expires within the given duration,
+// or that have refreshNeeded=true. Only returns integrations with a non-null refreshToken.
+func (s *Store) GetExpiringIntegrations(ctx context.Context, within time.Duration) ([]*Integration, error) {
+	q := fmt.Sprintf(`
+		SELECT %s
+		FROM "Integration"
+		WHERE "deletedAt" IS NULL
+		  AND "refreshToken" IS NOT NULL
+		  AND "refreshToken" != ''
+		  AND (
+		      ("tokenExpiration" IS NOT NULL AND "tokenExpiration" < $1)
+		      OR "refreshNeeded" = true
+		  )`, integrationCols)
+
+	rows, err := s.pool.Query(ctx, q, time.Now().Add(within))
+	if err != nil {
+		return nil, fmt.Errorf("GetExpiringIntegrations: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*Integration
+	for rows.Next() {
+		i, err := scanIntegration(rows)
+		if err != nil {
+			return nil, fmt.Errorf("GetExpiringIntegrations scan: %w", err)
+		}
+		out = append(out, i)
+	}
+	return out, rows.Err()
+}
+
+// UpdateIntegrationTokens updates the token fields for an integration by ID (no org scope).
+// Used by the scheduler's token-refresh job.
+func (s *Store) UpdateIntegrationTokens(ctx context.Context, id, token string, refreshToken *string, expiration *time.Time) error {
+	const q = `
+		UPDATE "Integration"
+		SET token = $1, "refreshToken" = $2, "tokenExpiration" = $3,
+		    "refreshNeeded" = false, "updatedAt" = NOW()
+		WHERE id = $4`
+
+	_, err := s.pool.Exec(ctx, q, token, refreshToken, expiration, id)
+	if err != nil {
+		return fmt.Errorf("UpdateIntegrationTokens: %w", err)
+	}
+	return nil
+}
+
 // DeleteIntegration soft-deletes an integration by setting deletedAt.
 func (s *Store) DeleteIntegration(ctx context.Context, id, orgID string) error {
 	const q = `

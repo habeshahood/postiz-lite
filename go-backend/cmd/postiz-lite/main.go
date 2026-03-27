@@ -130,7 +130,12 @@ func runMultiTenant(configs []tenant.Config) {
 
 		mountAPI(r, "", store, cfg.JWTSecret, rdb)
 
-		sched := scheduler.New(store)
+		// Build a context with this tenant's social keys for the scheduler's token refresh job.
+		schedCtx := context.Background()
+		schedCtx = tenant.WithSocialKeys(schedCtx, &socialKeys)
+		schedCtx = tenant.WithFrontendURL(schedCtx, frontendURL)
+
+		sched := scheduler.New(store, schedCtx)
 		sched.Start()
 
 		lt := &liveTenant{
@@ -231,8 +236,9 @@ func runSingleTenant() {
 	// Connect to Redis (for OAuth state management)
 	rdb := api.NewRedisClient()
 
-	// Start the post scheduler (replaces Temporal)
-	sched := scheduler.New(store)
+	// Start the post scheduler (replaces Temporal).
+	// Single-tenant mode has no tenant context for refresh; pass background ctx.
+	sched := scheduler.New(store, context.Background())
 	sched.Start()
 	defer sched.Stop()
 
