@@ -28,3 +28,8 @@ func (s *Store) Exec(ctx context.Context, sql string, args ...any) (pgconn.Comma
 func (s *Store) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return s.pool.QueryRow(ctx, sql, args...)
 }
+
+// Ping checks that the database connection is alive.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}

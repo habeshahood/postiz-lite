@@ -1,0 +1,212 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/habeshahood/postiz-lite/internal/db"
+	"github.com/habeshahood/postiz-lite/internal/scheduler"
+	"github.com/habeshahood/postiz-lite/internal/tenant"
+	"github.com/redis/go-redis/v9"
+)
+
+// RegisterAdmin mounts admin-only tenant management routes.
+// Protected by a master API key (ADMIN_KEY env var).
+// If ADMIN_KEY is not set, only requests from 127.0.0.1 are allowed.
+func RegisterAdmin(r chi.Router, tm *tenant.TenantManager, tenantsFile string, buildRouter func(store *db.Store, cfg tenant.Config, rdb *redis.Client) chi.Router) {
+	r.Group(func(r chi.Router) {
+		r.Use(adminKeyAuth())
+		r.Get("/admin/tenants", handleListTenants(tm))
+		r.Post("/admin/tenants", handleCreateTenant(tm, tenantsFile, buildRouter))
+		r.Delete("/admin/tenants/{id}", handleDeleteTenant(tm, tenantsFile))
+	})
+}
+
+// adminKeyAuth checks Authorization: Bearer <ADMIN_KEY>.
+// If ADMIN_KEY is not set, allows requests from localhost only.
+func adminKeyAuth() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			adminKey := os.Getenv("ADMIN_KEY")
+			if adminKey == "" {
+				// No key configured — restrict to localhost only
+				ip, _, err := net.SplitHostPort(r.RemoteAddr)
+				if err != nil {
+					ip = r.RemoteAddr
+				}
+				if ip != "127.0.0.1" && ip != "::1" {
+					http.Error(w, `{"msg":"ADMIN_KEY not configured; admin access restricted to localhost"}`, http.StatusForbidden)
+					return
+				}
+			} else {
+				auth := r.Header.Get("Authorization")
+				token, found := strings.CutPrefix(auth, "Bearer ")
+				if !found || token != adminKey {
+					http.Error(w, `{"msg":"Unauthorized"}`, http.StatusUnauthorized)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func handleListTenants(tm *tenant.TenantManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, tm.List())
+	}
+}
+
+func handleCreateTenant(tm *tenant.TenantManager, tenantsFile string, buildRouter func(*db.Store, tenant.Config, *redis.Client) chi.Router) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			tenant.Config
+			AdminEmail    string `json:"admin_email"`
+			AdminPassword string `json:"admin_password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"msg":"Invalid JSON"}`, http.StatusBadRequest)
+			return
+		}
+		if req.ID == "" || len(req.Hosts) == 0 || req.DatabaseURL == "" {
+			http.Error(w, `{"msg":"id, hosts, and database_url required"}`, http.StatusBadRequest)
+			return
+		}
+
+		ctx := context.Background()
+
+		// Connect to DB (schema must already exist)
+		pool, err := db.Connect(ctx, req.DatabaseURL)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"msg":"DB connect failed: %s"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		// Connect to Redis
+		redisURL := req.RedisURL
+		if redisURL == "" {
+			redisURL = "redis://localhost:6379"
+		}
+		opts, err := redis.ParseURL(redisURL)
+		if err != nil {
+			pool.Close()
+			http.Error(w, fmt.Sprintf(`{"msg":"Invalid redis_url: %s"}`, err), http.StatusBadRequest)
+			return
+		}
+		rdb := redis.NewClient(opts)
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			pool.Close()
+			rdb.Close()
+			http.Error(w, fmt.Sprintf(`{"msg":"Redis ping failed: %s"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		store := db.NewStore(pool)
+		router := buildRouter(store, req.Config, rdb)
+
+		// Build scheduler context with tenant social keys
+		schedCtx := context.Background()
+		socialKeys := req.Config.Social
+		schedCtx = tenant.WithSocialKeys(schedCtx, &socialKeys)
+		schedCtx = tenant.WithFrontendURL(schedCtx, req.FrontendURL)
+
+		sched := scheduler.New(store, schedCtx)
+		sched.Start()
+
+		lt := &tenant.LiveTenant{
+			Config: req.Config,
+			Router: router,
+			Pool:   pool,
+			Redis:  rdb,
+			StopFunc: func() {
+				sched.Stop()
+				rdb.Close()
+				pool.Close()
+			},
+		}
+		tm.Add(lt)
+
+		// Persist to tenants.json for survival across restarts
+		if tenantsFile != "" {
+			if err := appendTenantConfig(tenantsFile, req.Config); err != nil {
+				slog.Warn("failed to persist tenant to file", "id", req.ID, "error", err)
+			}
+		}
+
+		slog.Info("tenant created via admin API", "id", req.ID, "hosts", req.Hosts)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":    req.ID,
+			"hosts": req.Hosts,
+			"url":   req.FrontendURL,
+		})
+	}
+}
+
+func handleDeleteTenant(tm *tenant.TenantManager, tenantsFile string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if id == "" {
+			http.Error(w, `{"msg":"id required"}`, http.StatusBadRequest)
+			return
+		}
+		if err := tm.Remove(id); err != nil {
+			http.Error(w, fmt.Sprintf(`{"msg":"%s"}`, err), http.StatusNotFound)
+			return
+		}
+		// Remove from tenants.json
+		if tenantsFile != "" {
+			if err := removeTenantConfig(tenantsFile, id); err != nil {
+				slog.Warn("failed to remove tenant from file", "id", id, "error", err)
+			}
+		}
+		slog.Info("tenant deleted via admin API", "id", id)
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
+	}
+}
+
+// appendTenantConfig reads tenantsFile, appends the new config, and writes it back.
+func appendTenantConfig(path string, cfg tenant.Config) error {
+	existing, err := tenant.LoadConfigs(path)
+	if err != nil {
+		// If file doesn't exist or is empty, start fresh
+		existing = []tenant.Config{}
+	}
+	// Check for duplicate
+	for _, c := range existing {
+		if c.ID == cfg.ID {
+			return fmt.Errorf("tenant %s already in file", cfg.ID)
+		}
+	}
+	existing = append(existing, cfg)
+	data, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// removeTenantConfig reads tenantsFile, removes the tenant by ID, and writes it back.
+func removeTenantConfig(path string, id string) error {
+	existing, err := tenant.LoadConfigs(path)
+	if err != nil {
+		return err
+	}
+	filtered := existing[:0]
+	for _, c := range existing {
+		if c.ID != id {
+			filtered = append(filtered, c)
+		}
+	}
+	data, err := json.MarshalIndent(filtered, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}

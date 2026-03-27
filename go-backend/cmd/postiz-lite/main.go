@@ -39,23 +39,13 @@ func main() {
 		return
 	}
 
-	runMultiTenant(configs)
+	runMultiTenant(configs, tenantsFile)
 }
 
-// liveTenant holds all per-tenant live resources.
-type liveTenant struct {
-	id        string
-	router    chi.Router
-	sched     *scheduler.Scheduler
-	pool      interface{ Close() }
-	rdb       *redis.Client
-}
-
-func runMultiTenant(configs []tenant.Config) {
+func runMultiTenant(configs []tenant.Config, tenantsFile string) {
 	ctx := context.Background()
 
-	hostMap := make(map[string]*liveTenant)
-	tenants := make([]*liveTenant, 0, len(configs))
+	tm := tenant.NewTenantManager()
 
 	for _, cfg := range configs {
 		cfg := cfg // capture
@@ -83,101 +73,44 @@ func runMultiTenant(configs []tenant.Config) {
 		}
 
 		store := db.NewStore(pool)
-
-		uploadDir := cfg.UploadDir
-		if uploadDir == "" {
-			uploadDir = "/uploads"
-		}
-
-		socialKeys := cfg.Social // copy
-
-		r := chi.NewRouter()
-		r.Use(chimw.Recoverer)
-		r.Use(chimw.RealIP)
-		r.Use(chimw.Compress(5))
-		r.Use(cors.Handler(cors.Options{
-			AllowedOrigins:   []string{cfg.FrontendURL, "http://localhost:*"},
-			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "auth", "showorg", "impersonate", "reload", "onboarding"},
-			AllowCredentials: true,
-			MaxAge:           300,
-		}))
-
-		// Inject tenant context for every request
-		tenantID := cfg.ID
-		frontendURL := cfg.FrontendURL
-		r.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				c := req.Context()
-				c = tenant.WithTenantID(c, tenantID)
-				c = tenant.WithSocialKeys(c, &socialKeys)
-				c = tenant.WithFrontendURL(c, frontendURL)
-				c = tenant.WithUploadDir(c, uploadDir)
-				next.ServeHTTP(w, req.WithContext(c))
-			})
-		})
-
-		r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
-			if err := pool.Ping(req.Context()); err != nil {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				fmt.Fprintf(w, `{"status":"error","tenant":"%s","error":"db ping failed"}`, tenantID)
-				return
-			}
-			fmt.Fprintf(w, `{"status":"ok","tenant":"%s"}`, tenantID)
-		})
-
-		r.Handle("/uploads/*", http.StripPrefix("/uploads", http.FileServer(http.Dir(uploadDir))))
-
-		mountAPI(r, "", store, cfg.JWTSecret, rdb)
+		router := buildTenantRouter(store, cfg, rdb)
 
 		// Build a context with this tenant's social keys for the scheduler's token refresh job.
+		socialKeys := cfg.Social
 		schedCtx := context.Background()
 		schedCtx = tenant.WithSocialKeys(schedCtx, &socialKeys)
-		schedCtx = tenant.WithFrontendURL(schedCtx, frontendURL)
+		schedCtx = tenant.WithFrontendURL(schedCtx, cfg.FrontendURL)
 
 		sched := scheduler.New(store, schedCtx)
 		sched.Start()
 
-		lt := &liveTenant{
-			id:     cfg.ID,
-			router: r,
-			sched:  sched,
-			pool:   pool,
-			rdb:    rdb,
+		lt := &tenant.LiveTenant{
+			Config: cfg,
+			Router: router,
+			Pool:   pool,
+			Redis:  rdb,
+			StopFunc: func() {
+				sched.Stop()
+				rdb.Close()
+				pool.Close()
+			},
 		}
-
-		for _, host := range cfg.Hosts {
-			hostMap[host] = lt
-		}
-		tenants = append(tenants, lt)
+		tm.Add(lt)
 
 		slog.Info("tenant initialized", "id", cfg.ID, "hosts", cfg.Hosts)
 	}
 
-	dispatch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Priority: X-Forwarded-Host (SSR/proxy) > Host (direct)
-		host := strings.ToLower(r.Header.Get("X-Forwarded-Host"))
-		if host == "" {
-			host = strings.ToLower(r.Host)
-		}
-		// Exact match (includes port)
-		if lt, ok := hostMap[host]; ok {
-			lt.router.ServeHTTP(w, r)
+	// Admin router wraps the tenant dispatcher and exposes admin endpoints.
+	adminRouter := chi.NewRouter()
+	api.RegisterAdmin(adminRouter, tm, tenantsFile, buildTenantRouter)
+	// Wrap: admin routes take priority, everything else falls through to TenantManager.
+	mainHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if the path starts with /admin/ — route to admin router.
+		if strings.HasPrefix(r.URL.Path, "/admin/") || r.URL.Path == "/admin" {
+			adminRouter.ServeHTTP(w, r)
 			return
 		}
-		// Strip port and retry
-		if idx := strings.LastIndex(host, ":"); idx != -1 {
-			if lt, ok := hostMap[host[:idx]]; ok {
-				lt.router.ServeHTTP(w, r)
-				return
-			}
-		}
-		// Fallback: first tenant (localhost dev)
-		if len(tenants) > 0 {
-			tenants[0].router.ServeHTTP(w, r)
-			return
-		}
-		http.Error(w, `{"msg":"Unknown tenant"}`, http.StatusNotFound)
+		tm.ServeHTTP(w, r)
 	})
 
 	port := 3000
@@ -191,14 +124,14 @@ func runMultiTenant(configs []tenant.Config) {
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", bindAddr, port),
-		Handler:      dispatch,
+		Handler:      mainHandler,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
 	go func() {
-		slog.Info("postiz-lite multi-tenant starting", "port", port, "bind", bindAddr, "tenants", len(tenants))
+		slog.Info("postiz-lite multi-tenant starting", "port", port, "bind", bindAddr, "tenants", len(configs))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
@@ -214,11 +147,61 @@ func runMultiTenant(configs []tenant.Config) {
 	defer cancel()
 	srv.Shutdown(shutCtx)
 
-	for _, lt := range tenants {
-		lt.sched.Stop()
-		lt.rdb.Close()
-		lt.pool.Close()
+	for _, lt := range tm.Tenants() {
+		lt.StopFunc()
 	}
+}
+
+// buildTenantRouter constructs the chi.Router for a single tenant.
+// It is used at startup (for each config) and by the admin API (for hot-add).
+func buildTenantRouter(store *db.Store, cfg tenant.Config, rdb *redis.Client) chi.Router {
+	uploadDir := cfg.UploadDir
+	if uploadDir == "" {
+		uploadDir = "/uploads"
+	}
+
+	socialKeys := cfg.Social // copy
+	tenantID := cfg.ID
+	frontendURL := cfg.FrontendURL
+
+	r := chi.NewRouter()
+	r.Use(chimw.Recoverer)
+	r.Use(chimw.RealIP)
+	r.Use(chimw.Compress(5))
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{cfg.FrontendURL, "http://localhost:*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "auth", "showorg", "impersonate", "reload", "onboarding"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+
+	// Inject tenant context for every request
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			c := req.Context()
+			c = tenant.WithTenantID(c, tenantID)
+			c = tenant.WithSocialKeys(c, &socialKeys)
+			c = tenant.WithFrontendURL(c, frontendURL)
+			c = tenant.WithUploadDir(c, uploadDir)
+			next.ServeHTTP(w, req.WithContext(c))
+		})
+	})
+
+	r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+		if err := store.Ping(req.Context()); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, `{"status":"error","tenant":"%s","error":"db ping failed"}`, tenantID)
+			return
+		}
+		fmt.Fprintf(w, `{"status":"ok","tenant":"%s"}`, tenantID)
+	})
+
+	r.Handle("/uploads/*", http.StripPrefix("/uploads", http.FileServer(http.Dir(uploadDir))))
+
+	mountAPI(r, "", store, cfg.JWTSecret, rdb)
+
+	return r
 }
 
 func runSingleTenant() {
