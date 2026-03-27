@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/habeshahood/postiz-lite/internal/tenant"
 	"github.com/lucsky/cuid"
 )
 
@@ -68,7 +69,11 @@ func (s *Store) CreatePostFromAPI(ctx context.Context, orgID string, body map[st
 // directory (UPLOAD_DIR env var, default "./uploads"), then persists a Media
 // row. The caller is responsible for closing src.
 func (s *Store) SaveMediaFromUpload(ctx context.Context, orgID, filename string, src io.Reader) (*Media, error) {
-	uploadDir := os.Getenv("UPLOAD_DIR")
+	// Use per-tenant upload dir from context (multi-tenant), fall back to env var (single-tenant)
+	uploadDir := tenant.GetUploadDir(ctx)
+	if uploadDir == "" {
+		uploadDir = os.Getenv("UPLOAD_DIR")
+	}
 	if uploadDir == "" {
 		uploadDir = "./uploads"
 	}
