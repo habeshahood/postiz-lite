@@ -354,8 +354,59 @@ func handleDeletePostGroup(store *db.Store) http.HandlerFunc {
 
 // ---- Integration handlers ----
 
+// handleInternalListIntegrations returns the provider catalog — the list of all
+// available social platforms (X, TikTok, YouTube, etc.) that users can connect.
+// This is called by the "Add Channel" modal on GET /integrations (no /list suffix).
 func handleInternalListIntegrations(store *db.Store) http.HandlerFunc {
-	return handleListIntegrations(store) // reuse public handler
+	// Static catalog of available providers — matches socialIntegrationList in the NestJS code.
+	type providerInfo struct {
+		Name              string `json:"name"`
+		Identifier        string `json:"identifier"`
+		ToolTip           string `json:"toolTip,omitempty"`
+		Editor            string `json:"editor"`
+		IsExternal        bool   `json:"isExternal"`
+		IsWeb3            bool   `json:"isWeb3"`
+		IsChromeExtension bool   `json:"isChromeExtension"`
+	}
+
+	catalog := map[string]any{
+		"social": []providerInfo{
+			{Name: "X", Identifier: "x", Editor: "normal", ToolTip: "You will be logged in into your current account"},
+			{Name: "LinkedIn", Identifier: "linkedin", Editor: "normal"},
+			{Name: "LinkedIn Page", Identifier: "linkedin-page", Editor: "normal"},
+			{Name: "Reddit", Identifier: "reddit", Editor: "markdown"},
+			{Name: "Instagram", Identifier: "instagram", Editor: "normal"},
+			{Name: "Instagram Standalone", Identifier: "instagram-standalone", Editor: "normal"},
+			{Name: "Facebook Page", Identifier: "facebook", Editor: "normal"},
+			{Name: "Threads", Identifier: "threads", Editor: "normal"},
+			{Name: "YouTube", Identifier: "youtube", Editor: "normal"},
+			{Name: "Google My Business", Identifier: "gmb", Editor: "normal"},
+			{Name: "TikTok", Identifier: "tiktok", Editor: "normal"},
+			{Name: "Pinterest", Identifier: "pinterest", Editor: "normal"},
+			{Name: "Dribbble", Identifier: "dribbble", Editor: "normal"},
+			{Name: "Discord", Identifier: "discord", Editor: "normal"},
+			{Name: "Slack", Identifier: "slack", Editor: "normal"},
+			{Name: "Kick", Identifier: "kick", Editor: "normal", IsChromeExtension: true},
+			{Name: "Twitch", Identifier: "twitch", Editor: "normal", IsChromeExtension: true},
+			{Name: "Mastodon", Identifier: "mastodon", Editor: "normal"},
+			{Name: "Bluesky", Identifier: "bluesky", Editor: "normal"},
+			{Name: "Lemmy", Identifier: "lemmy", Editor: "markdown"},
+			{Name: "Farcaster", Identifier: "farcaster", Editor: "normal", IsWeb3: true},
+			{Name: "Telegram", Identifier: "telegram", Editor: "normal"},
+			{Name: "Nostr", Identifier: "nostr", Editor: "normal", IsWeb3: true},
+			{Name: "VK", Identifier: "vk", Editor: "normal"},
+			{Name: "Medium", Identifier: "medium", Editor: "html"},
+			{Name: "Dev.to", Identifier: "dev.to", Editor: "markdown"},
+			{Name: "Hashnode", Identifier: "hashnode", Editor: "markdown"},
+			{Name: "WordPress", Identifier: "wordpress", Editor: "html"},
+			{Name: "Listmonk", Identifier: "listmonk", Editor: "html"},
+		},
+		"article": []any{},
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, catalog)
+	}
 }
 
 func handleIntegrationsList(store *db.Store) http.HandlerFunc {
