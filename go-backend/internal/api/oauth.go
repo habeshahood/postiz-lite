@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/habeshahood/postiz-lite/internal/db"
 	"github.com/habeshahood/postiz-lite/internal/middleware"
+	"github.com/habeshahood/postiz-lite/internal/tenant"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -49,7 +50,7 @@ func handleSocialOAuthURLReal(store *db.Store, rdb *redis.Client) http.HandlerFu
 			return
 		}
 
-		frontendURL := os.Getenv("FRONTEND_URL")
+		frontendURL := tenant.GetFrontendURL(r.Context())
 		if frontendURL == "" {
 			frontendURL = "https://postiz.1h00d.com"
 		}
@@ -60,20 +61,21 @@ func handleSocialOAuthURLReal(store *db.Store, rdb *redis.Client) http.HandlerFu
 		var authURL, codeVerifier, state string
 		var err error
 
+		socialKeys := tenant.GetSocialKeys(r.Context())
 		switch integration {
 		case "x":
-			authURL, codeVerifier, state, err = generateXAuthURL(frontendURL)
+			authURL, codeVerifier, state, err = generateXAuthURL(frontendURL, socialKeys)
 		case "bluesky":
 			// Bluesky uses custom fields (identifier + password), no OAuth redirect
 			state = randomState()
 			codeVerifier = randomState()
 			authURL = state // Frontend handles bluesky differently — shows a form
 		case "tiktok":
-			authURL, codeVerifier, state, err = generateTikTokAuthURL(frontendURL)
+			authURL, codeVerifier, state, err = generateTikTokAuthURL(frontendURL, socialKeys)
 		case "youtube":
-			authURL, codeVerifier, state, err = generateYouTubeAuthURL(frontendURL)
+			authURL, codeVerifier, state, err = generateYouTubeAuthURL(frontendURL, socialKeys)
 		case "facebook":
-			authURL, codeVerifier, state, err = generateFacebookAuthURL(frontendURL)
+			authURL, codeVerifier, state, err = generateFacebookAuthURL(frontendURL, socialKeys)
 		default:
 			// For other platforms, return a placeholder
 			state = randomState()
@@ -112,9 +114,12 @@ func handleSocialOAuthURLReal(store *db.Store, rdb *redis.Client) http.HandlerFu
 
 // ── X / Twitter (OAuth 1.0a) ─────────────────────────────────
 
-func generateXAuthURL(frontendURL string) (authURL, codeVerifier, state string, err error) {
-	apiKey := os.Getenv("X_API_KEY")
-	apiSecret := os.Getenv("X_API_SECRET")
+func generateXAuthURL(frontendURL string, keys *tenant.SocialKeys) (authURL, codeVerifier, state string, err error) {
+	var apiKey, apiSecret string
+	if keys != nil {
+		apiKey = keys.XAPIKey
+		apiSecret = keys.XAPISecret
+	}
 	if apiKey == "" || apiSecret == "" {
 		return "", "", "", fmt.Errorf("X_API_KEY and X_API_SECRET must be set")
 	}
@@ -147,8 +152,11 @@ func generateXAuthURL(frontendURL string) (authURL, codeVerifier, state string, 
 
 // ── TikTok (OAuth 2.0 PKCE) ─────────────────────────────────
 
-func generateTikTokAuthURL(frontendURL string) (authURL, codeVerifier, state string, err error) {
-	clientID := os.Getenv("TIKTOK_CLIENT_ID")
+func generateTikTokAuthURL(frontendURL string, keys *tenant.SocialKeys) (authURL, codeVerifier, state string, err error) {
+	var clientID string
+	if keys != nil {
+		clientID = keys.TikTokClientID
+	}
 	if clientID == "" {
 		return "", "", "", fmt.Errorf("TIKTOK_CLIENT_ID must be set")
 	}
@@ -173,8 +181,11 @@ func generateTikTokAuthURL(frontendURL string) (authURL, codeVerifier, state str
 
 // ── YouTube (Google OAuth 2.0) ───────────────────────────────
 
-func generateYouTubeAuthURL(frontendURL string) (authURL, codeVerifier, state string, err error) {
-	clientID := os.Getenv("YOUTUBE_CLIENT_ID")
+func generateYouTubeAuthURL(frontendURL string, keys *tenant.SocialKeys) (authURL, codeVerifier, state string, err error) {
+	var clientID string
+	if keys != nil {
+		clientID = keys.YouTubeClientID
+	}
 	if clientID == "" {
 		return "", "", "", fmt.Errorf("YOUTUBE_CLIENT_ID must be set")
 	}
@@ -201,8 +212,11 @@ func generateYouTubeAuthURL(frontendURL string) (authURL, codeVerifier, state st
 
 // ── Facebook (OAuth 2.0) ─────────────────────────────────────
 
-func generateFacebookAuthURL(frontendURL string) (authURL, codeVerifier, state string, err error) {
-	appID := os.Getenv("FACEBOOK_APP_ID")
+func generateFacebookAuthURL(frontendURL string, keys *tenant.SocialKeys) (authURL, codeVerifier, state string, err error) {
+	var appID string
+	if keys != nil {
+		appID = keys.FacebookAppID
+	}
 	if appID == "" {
 		return "", "", "", fmt.Errorf("FACEBOOK_APP_ID must be set")
 	}

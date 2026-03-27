@@ -8,12 +8,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/habeshahood/postiz-lite/internal/db"
+	"github.com/habeshahood/postiz-lite/internal/tenant"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -59,19 +59,22 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 			return
 		}
 
+		socialKeys := tenant.GetSocialKeys(r.Context())
+		frontendURL := tenant.GetFrontendURL(r.Context())
+
 		var accessToken, refreshToken, userID, userName, picture, username string
 		var expiresIn int
 
 		switch integration {
 		case "youtube":
-			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeYouTubeToken(body.Code)
+			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeYouTubeToken(body.Code, socialKeys, frontendURL)
 		case "facebook":
-			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeFacebookToken(body.Code, body.Refresh)
+			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeFacebookToken(body.Code, body.Refresh, socialKeys, frontendURL)
 		case "tiktok":
-			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeTikTokToken(body.Code, body.CodeVerifier)
+			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeTikTokToken(body.Code, body.CodeVerifier, socialKeys, frontendURL)
 		case "x":
 			codeVerifier, _ := rdb.Get(ctx, "login:"+body.State).Result()
-			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeXToken(body.Code, codeVerifier)
+			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeXToken(body.Code, codeVerifier, socialKeys)
 		default:
 			http.Error(w, fmt.Sprintf(`{"msg":"OAuth connect not implemented for %s"}`, integration), http.StatusNotImplemented)
 			return
@@ -169,10 +172,12 @@ func nilIfEmpty(s string) *string {
 
 // ── YouTube token exchange ───────────────────────────────────
 
-func exchangeYouTubeToken(code string) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
-	clientID := os.Getenv("YOUTUBE_CLIENT_ID")
-	clientSecret := os.Getenv("YOUTUBE_CLIENT_SECRET")
-	frontendURL := os.Getenv("FRONTEND_URL")
+func exchangeYouTubeToken(code string, keys *tenant.SocialKeys, frontendURL string) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
+	var clientID, clientSecret string
+	if keys != nil {
+		clientID = keys.YouTubeClientID
+		clientSecret = keys.YouTubeSecret
+	}
 	redirectURI := frontendURL + "/integrations/social/youtube"
 
 	// Exchange code for tokens
@@ -222,10 +227,12 @@ func exchangeYouTubeToken(code string) (accessToken, refreshToken, userID, userN
 
 // ── Facebook token exchange ──────────────────────────────────
 
-func exchangeFacebookToken(code, refresh string) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
-	appID := os.Getenv("FACEBOOK_APP_ID")
-	appSecret := os.Getenv("FACEBOOK_APP_SECRET")
-	frontendURL := os.Getenv("FRONTEND_URL")
+func exchangeFacebookToken(code, refresh string, keys *tenant.SocialKeys, frontendURL string) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
+	var appID, appSecret string
+	if keys != nil {
+		appID = keys.FacebookAppID
+		appSecret = keys.FacebookSecret
+	}
 	redirectURI := frontendURL + "/integrations/social/facebook"
 	if refresh != "" {
 		redirectURI += "?refresh=" + refresh
@@ -277,10 +284,12 @@ func exchangeFacebookToken(code, refresh string) (accessToken, refreshToken, use
 
 // ── TikTok token exchange ────────────────────────────────────
 
-func exchangeTikTokToken(code, codeVerifier string) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
-	clientID := os.Getenv("TIKTOK_CLIENT_ID")
-	clientSecret := os.Getenv("TIKTOK_CLIENT_SECRET")
-	frontendURL := os.Getenv("FRONTEND_URL")
+func exchangeTikTokToken(code, codeVerifier string, keys *tenant.SocialKeys, frontendURL string) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
+	var clientID, clientSecret string
+	if keys != nil {
+		clientID = keys.TikTokClientID
+		clientSecret = keys.TikTokSecret
+	}
 	redirectURI := frontendURL + "/integrations/social/tiktok"
 
 	formData := url.Values{
@@ -336,7 +345,7 @@ func exchangeTikTokToken(code, codeVerifier string) (accessToken, refreshToken, 
 
 // ── X / Twitter token exchange (OAuth 1.0a) ──────────────────
 
-func exchangeXToken(oauthVerifier, codeVerifier string) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
+func exchangeXToken(oauthVerifier, codeVerifier string, keys *tenant.SocialKeys) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
 	if codeVerifier == "" {
 		return "", "", "", "", "", "", 0, fmt.Errorf("missing code verifier (OAuth state expired)")
 	}
@@ -347,8 +356,11 @@ func exchangeXToken(oauthVerifier, codeVerifier string) (accessToken, refreshTok
 	}
 	oauthToken, oauthSecret := parts[0], parts[1]
 
-	apiKey := os.Getenv("X_API_KEY")
-	apiSecret := os.Getenv("X_API_SECRET")
+	var apiKey, apiSecret string
+	if keys != nil {
+		apiKey = keys.XAPIKey
+		apiSecret = keys.XAPISecret
+	}
 
 	// Exchange request token for access token
 	formData := url.Values{

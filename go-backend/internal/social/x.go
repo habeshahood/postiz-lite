@@ -8,11 +8,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/dghubble/oauth1"
 	"github.com/habeshahood/postiz-lite/internal/db"
+	"github.com/habeshahood/postiz-lite/internal/tenant"
 )
 
 func init() {
@@ -24,11 +24,12 @@ type xProvider struct{}
 func (x *xProvider) Identifier() string { return "x" }
 
 func (x *xProvider) Post(ctx context.Context, post *db.Post, integration *db.Integration) (*PostResult, error) {
-	apiKey := os.Getenv("X_API_KEY")
-	apiSecret := os.Getenv("X_API_SECRET")
-	if apiKey == "" || apiSecret == "" {
-		return nil, fmt.Errorf("x: X_API_KEY and X_API_SECRET must be set")
+	keys := tenant.GetSocialKeys(ctx)
+	if keys == nil || keys.XAPIKey == "" || keys.XAPISecret == "" {
+		return nil, fmt.Errorf("x: X_API_KEY and X_API_SECRET not configured for this tenant")
 	}
+	apiKey := keys.XAPIKey
+	apiSecret := keys.XAPISecret
 
 	parts := strings.SplitN(integration.Token, ":", 2)
 	if len(parts) != 2 {
