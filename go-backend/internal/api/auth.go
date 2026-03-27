@@ -59,15 +59,15 @@ func handleLogin(store *db.Store, jwtSecret string) http.HandlerFunc {
 			return
 		}
 
-		// Set cookie (same as Postiz)
+		// Set cookie — NOT HttpOnly because the frontend reads it via document.cookie
 		http.SetCookie(w, &http.Cookie{
 			Name:     "auth",
 			Value:    tokenStr,
 			Path:     "/",
-			HttpOnly: true,
+			HttpOnly: false,
 			Secure:   true,
 			SameSite: http.SameSiteNoneMode,
-			MaxAge:   60 * 60 * 24 * 30,
+			MaxAge:   60 * 60 * 24 * 365, // 1 year for owner
 		})
 
 		writeJSON(w, http.StatusOK, map[string]string{"token": tokenStr})
