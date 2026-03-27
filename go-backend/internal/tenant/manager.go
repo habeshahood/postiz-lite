@@ -77,6 +77,24 @@ func (tm *TenantManager) List() []map[string]any {
 	return result
 }
 
+// HasHost returns true if the given domain is registered to any tenant.
+// Used by Caddy on-demand TLS to verify domains before issuing certificates.
+func (tm *TenantManager) HasHost(domain string) bool {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	host := strings.ToLower(domain)
+	if _, ok := tm.hostMap[host]; ok {
+		return true
+	}
+	// Strip port if present
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		if _, ok := tm.hostMap[host[:idx]]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // ServeHTTP dispatches requests by Host header. This is the main handler.
 func (tm *TenantManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tm.mu.RLock()

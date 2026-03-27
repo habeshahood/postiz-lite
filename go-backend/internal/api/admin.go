@@ -20,6 +20,9 @@ import (
 // Protected by a master API key (ADMIN_KEY env var).
 // If ADMIN_KEY is not set, only requests from 127.0.0.1 are allowed.
 func RegisterAdmin(r chi.Router, tm *tenant.TenantManager, tenantsFile string, buildRouter func(store *db.Store, cfg tenant.Config, rdb *redis.Client) chi.Router) {
+	// Domain verification for Caddy on-demand TLS (no auth — called by Caddy internally)
+	r.Get("/admin/verify-domain", handleVerifyDomain(tm))
+
 	r.Group(func(r chi.Router) {
 		r.Use(adminKeyAuth())
 		r.Get("/admin/tenants", handleListTenants(tm))
@@ -54,6 +57,24 @@ func adminKeyAuth() func(http.Handler) http.Handler {
 
 			http.Error(w, `{"msg":"Admin access requires ADMIN_KEY. Set ADMIN_KEY env var and use: Authorization: Bearer <key>"}`, http.StatusForbidden)
 		})
+	}
+}
+
+// handleVerifyDomain is called by Caddy's on-demand TLS before issuing a certificate.
+// Returns 200 if the domain belongs to a known tenant, 403 otherwise.
+// This prevents abuse — Caddy won't issue certs for random domains.
+func handleVerifyDomain(tm *tenant.TenantManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		domain := r.URL.Query().Get("domain")
+		if domain == "" {
+			http.Error(w, "missing domain parameter", http.StatusBadRequest)
+			return
+		}
+		if tm.HasHost(domain) {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Error(w, "unknown domain", http.StatusForbidden)
 	}
 }
 
