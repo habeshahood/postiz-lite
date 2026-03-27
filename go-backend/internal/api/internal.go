@@ -9,6 +9,24 @@ import (
 	"github.com/habeshahood/postiz-lite/internal/middleware"
 )
 
+// RegisterPublic mounts routes that require NO authentication.
+// These match the NestJS NoAuthIntegrationsController.
+func RegisterPublic(r chi.Router, store *db.Store) {
+	// Provider catalog — list of all available platforms (Add Channel modal)
+	r.Get("/integrations", handleInternalListIntegrations(store))
+	r.Get("/integrations/", handleInternalListIntegrations(store))
+
+	// OAuth callback for social-connect
+	r.Post("/integrations/social-connect/{integration}", handleSocialConnect())
+}
+
+func handleSocialConnect() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Stub — OAuth connect flow needs Redis state management
+		http.Error(w, `{"msg":"OAuth connect not yet implemented in postiz-lite"}`, http.StatusNotImplemented)
+	}
+}
+
 // RegisterInternal mounts all JWT-protected internal API routes (used by Next.js frontend).
 func RegisterInternal(r chi.Router, store *db.Store) {
 	// User
@@ -33,8 +51,7 @@ func RegisterInternal(r chi.Router, store *db.Store) {
 	r.Get("/posts/tags", handleGetTags())
 	r.Delete("/posts/{group}", handleDeletePostGroup(store))
 
-	// Integrations
-	r.Get("/integrations", handleInternalListIntegrations(store))
+	// Integrations (GET /integrations is public — see RegisterPublic)
 	r.Get("/integrations/list", handleIntegrationsList(store))
 	r.Get("/integrations/social/{integration}", handleSocialOAuthURL())
 	r.Get("/integrations/{id}", handleGetIntegration(store))

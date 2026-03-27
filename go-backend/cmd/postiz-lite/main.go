@@ -133,6 +133,9 @@ func mountAPI(r chi.Router, prefix string, store *db.Store, jwtSecret string) {
 		// Auth routes (no JWT required)
 		api.RegisterAuth(r, store, jwtSecret)
 
+		// Public routes (no auth) — provider catalog for Add Channel modal
+		api.RegisterPublic(r, store)
+
 		// JWT-protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.JWTAuth(jwtSecret, store))
