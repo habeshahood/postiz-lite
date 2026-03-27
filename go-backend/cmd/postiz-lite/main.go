@@ -118,6 +118,11 @@ func runMultiTenant(configs []tenant.Config) {
 		})
 
 		r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+			if err := pool.Ping(req.Context()); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprintf(w, `{"status":"error","tenant":"%s","error":"db ping failed"}`, tenantID)
+				return
+			}
 			fmt.Fprintf(w, `{"status":"ok","tenant":"%s"}`, tenantID)
 		})
 
