@@ -1214,13 +1214,18 @@ func handleCreateComment(store *db.Store) http.HandlerFunc {
 		postID := chi.URLParam(r, "id")
 		var body struct {
 			Content string `json:"content"`
+			Comment string `json:"comment"`
 		}
 		json.NewDecoder(r.Body).Decode(&body)
-		if body.Content == "" {
+		text := body.Content
+		if text == "" {
+			text = body.Comment
+		}
+		if text == "" {
 			http.Error(w, `{"msg":"content required"}`, http.StatusBadRequest)
 			return
 		}
-		c, err := store.CreateComment(r.Context(), org.ID, postID, user.ID, body.Content)
+		c, err := store.CreateComment(r.Context(), org.ID, postID, user.ID, text)
 		if err != nil {
 			http.Error(w, `{"msg":"Failed to create comment"}`, http.StatusInternalServerError)
 			return
