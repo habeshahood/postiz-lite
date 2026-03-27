@@ -1,0 +1,21 @@
+[
+  {
+    "id": "my-site",
+    "hosts": ["postiz.my-site.com"],
+    "database_url": "postgresql://postiz-user:postiz-password@postiz-postgres:5432/postiz-mysite",
+    "redis_url": "redis://postiz-redis:6379/1",
+    "jwt_secret": "CHANGE-ME-random-64-hex-chars",
+    "frontend_url": "https://postiz.my-site.com",
+    "upload_dir": "/uploads/my-site",
+    "social": {
+      "x_api_key": "",
+      "x_api_secret": "",
+      "tiktok_client_id": "",
+      "tiktok_client_secret": "",
+      "youtube_client_id": "",
+      "youtube_client_secret": "",
+      "facebook_app_id": "",
+      "facebook_app_secret": ""
+    }
+  }
+]
