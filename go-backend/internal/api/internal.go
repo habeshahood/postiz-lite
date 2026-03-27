@@ -55,6 +55,21 @@ func RegisterInternal(r chi.Router, store *db.Store) {
 	r.Get("/settings/team", handleSettingsTeam(store))
 	r.Get("/settings/shortlink", handleShortlink())
 	r.Get("/settings/signatures", handleSignatures())
+
+	// Sets (content sets — used by calendar for grouping)
+	r.Get("/sets", handleGetSets())
+	r.Get("/sets/", handleGetSets())
+	r.Post("/sets", handleGetSets())
+	r.Post("/sets/", handleGetSets())
+
+	// Signatures (post signatures/footers)
+	r.Get("/signatures", handleSignatures())
+	r.Get("/signatures/", handleSignatures())
+	r.Get("/signatures/default", handleDefaultSignature())
+
+	// Copilot (AI assistant — stub)
+	r.Post("/copilot/chat", handleCopilotStub())
+	r.Get("/copilot/credits", handleCopilotCredits())
 }
 
 // ---- User handlers ----
@@ -498,5 +513,29 @@ func handleShortlink() http.HandlerFunc {
 func handleSignatures() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []any{})
+	}
+}
+
+func handleDefaultSignature() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{})
+	}
+}
+
+func handleGetSets() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []any{})
+	}
+}
+
+func handleCopilotStub() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"msg":"Copilot not available"}`, http.StatusNotFound)
+	}
+}
+
+func handleCopilotCredits() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"credits": 0})
 	}
 }
