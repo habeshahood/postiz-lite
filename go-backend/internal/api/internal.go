@@ -77,6 +77,7 @@ func RegisterInternal(r chi.Router, store *db.Store) {
 	// Third-party integrations
 	r.Get("/third-party", handleEmptyArray())
 	r.Get("/third-party/", handleEmptyArray())
+	r.Get("/third-party/list", handleEmptyArray())
 
 	// Media library
 	r.Get("/media", handleEmptyArray())
