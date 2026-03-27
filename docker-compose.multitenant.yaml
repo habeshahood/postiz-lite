@@ -24,6 +24,7 @@ services:
       # Frontend build-time vars (client-side overridden by /api relative URL in layout.tsx)
       NEXT_PUBLIC_BACKEND_URL: "https://postiz.ferroquant.com/api"
       BACKEND_INTERNAL_URL: "http://localhost:3000"
+      AUTO_LOGIN: "true"
       STORAGE_PROVIDER: "local"
       NEXT_PUBLIC_UPLOAD_DIRECTORY: "/uploads"
     volumes:

@@ -88,6 +88,13 @@ export async function proxy(request: NextRequest) {
   const org = nextUrl.searchParams.get('org');
   const url = new URL(nextUrl).search;
   if (!nextUrl.pathname.startsWith('/auth') && !authCookie) {
+    // Single-admin mode: auto-login the SUPERADMIN without showing login page.
+    // The auto-login endpoint creates a 1-year JWT and redirects to /launches.
+    if (process.env.AUTO_LOGIN === 'true') {
+      return NextResponse.redirect(
+        new URL(`/api/auth/auto-login`, nextUrl.href)
+      );
+    }
     const providers = ['google', 'settings'];
     const findIndex = providers.find((p) => nextUrl.href.indexOf(p) > -1);
     const additional = !findIndex
