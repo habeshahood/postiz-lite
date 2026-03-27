@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/habeshahood/postiz-lite/internal/db"
 	"github.com/habeshahood/postiz-lite/internal/middleware"
+	"github.com/habeshahood/postiz-lite/internal/tenant"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -104,6 +105,7 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Get("/media/video-options", handleEmptyArray())
 	r.Post("/media/upload-simple", handleUpload(store))
 	r.Post("/media/upload-server", handleUpload(store))
+	r.Post("/media/save-media", handleSaveMedia(store))
 
 	// Plugs (automation plugins)
 	r.Get("/plugs", handleEmptyArray())
@@ -532,6 +534,54 @@ func handleListMedia(store *db.Store) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"pages":   pages,
 			"results": media[start:end],
+		})
+	}
+}
+
+// handleSaveMedia registers an uploaded file in the Media table.
+// Called by the frontend after Uppy uploads to /media/upload-server.
+func handleSaveMedia(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+
+		var body struct {
+			Name         string `json:"name"`
+			OriginalName string `json:"originalName"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+			writeJSON(w, http.StatusOK, false)
+			return
+		}
+
+		uploadDir := tenant.GetUploadDir(r.Context())
+		if uploadDir == "" {
+			uploadDir = "/uploads"
+		}
+
+		// The file was already saved by handleUpload at uploadDir/name
+		filePath := uploadDir + "/" + body.Name
+
+		var origName *string
+		if body.OriginalName != "" {
+			origName = &body.OriginalName
+		}
+
+		media, err := store.SaveMedia(r.Context(), org.ID, body.Name, filePath, "image", origName, 0)
+		if err != nil {
+			http.Error(w, `{"msg":"Failed to save media"}`, http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":           media.ID,
+			"name":         media.Name,
+			"originalName": media.OriginalName,
+			"path":         media.Path,
+			"thumbnail":    media.Thumbnail,
 		})
 	}
 }
