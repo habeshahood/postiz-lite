@@ -51,7 +51,7 @@ module.exports = {
       env: {
         PORT: "3000",
         BIND_ADDR: "0.0.0.0",
-        FRONTEND_INTERNAL_URL: "",
+        TENANTS_FILE: "/config/tenants.json",
       },
     },
     {

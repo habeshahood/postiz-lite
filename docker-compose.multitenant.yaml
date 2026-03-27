@@ -1,0 +1,47 @@
+# postiz-lite multi-tenant: one container serves all tenants.
+#
+# Adding a tenant:
+#   1. Create their database: ./scripts/add-tenant.sh <id> <domain> <email>
+#   2. Restart: docker compose -f docker-compose.multitenant.yaml restart
+#
+# Rollback to separate containers:
+#   docker compose -f docker-compose.multitenant.yaml down
+#   docker start postiz-ferroquant-lite postiz-lite
+
+services:
+  postiz-multitenant:
+    build:
+      context: .
+      dockerfile: Dockerfile.lite
+    container_name: postiz-multitenant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5000:5000"
+    environment:
+      TENANTS_FILE: "/config/tenants.json"
+      PORT: "3000"
+      BIND_ADDR: "0.0.0.0"
+      # Frontend build-time vars (client-side overridden by /api relative URL in layout.tsx)
+      NEXT_PUBLIC_BACKEND_URL: "https://postiz.ferroquant.com/api"
+      BACKEND_INTERNAL_URL: "http://localhost:3000"
+      STORAGE_PROVIDER: "local"
+      NEXT_PUBLIC_UPLOAD_DIRECTORY: "/uploads"
+    volumes:
+      - ./go-backend/tenants.json:/config/tenants.json:ro
+      - ferroquant-uploads:/uploads/ferroquant
+      - hood-uploads:/uploads/1hood
+    networks:
+      - postiz-shared
+    mem_limit: 512m
+
+volumes:
+  ferroquant-uploads:
+    external: true
+    name: postiz_postiz-uploads
+  hood-uploads:
+    external: true
+    name: postiz-1hood_postiz-1hood-uploads
+
+networks:
+  postiz-shared:
+    external: true
