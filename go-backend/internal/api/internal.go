@@ -496,9 +496,10 @@ func handleInternalCreatePost(store *db.Store) http.HandlerFunc {
 
 func handleFindSlot() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Return a default slot — next hour rounded up
+		// Next hour, rounded up
+		next := time.Now().UTC().Truncate(time.Hour).Add(time.Hour)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"date": "2025-01-01T10:00:00.000Z",
+			"date": next.Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 }
