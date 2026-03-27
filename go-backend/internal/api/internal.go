@@ -412,14 +412,22 @@ func handleDeletePostGroup(store *db.Store) http.HandlerFunc {
 // This is called by the "Add Channel" modal on GET /integrations (no /list suffix).
 func handleInternalListIntegrations(store *db.Store) http.HandlerFunc {
 	// Static catalog of available providers — matches socialIntegrationList in the NestJS code.
+	type customField struct {
+		Key          string `json:"key"`
+		Label        string `json:"label"`
+		DefaultValue string `json:"defaultValue,omitempty"`
+		Validation   string `json:"validation"`
+		Type         string `json:"type"`
+	}
 	type providerInfo struct {
-		Name              string `json:"name"`
-		Identifier        string `json:"identifier"`
-		ToolTip           string `json:"toolTip,omitempty"`
-		Editor            string `json:"editor"`
-		IsExternal        bool   `json:"isExternal"`
-		IsWeb3            bool   `json:"isWeb3"`
-		IsChromeExtension bool   `json:"isChromeExtension"`
+		Name              string        `json:"name"`
+		Identifier        string        `json:"identifier"`
+		ToolTip           string        `json:"toolTip,omitempty"`
+		Editor            string        `json:"editor"`
+		IsExternal        bool          `json:"isExternal"`
+		IsWeb3            bool          `json:"isWeb3"`
+		IsChromeExtension bool          `json:"isChromeExtension"`
+		CustomFields      []customField `json:"customFields,omitempty"`
 	}
 
 	catalog := map[string]any{
@@ -441,9 +449,13 @@ func handleInternalListIntegrations(store *db.Store) http.HandlerFunc {
 			{Name: "Slack", Identifier: "slack", Editor: "normal"},
 			{Name: "Kick", Identifier: "kick", Editor: "normal", IsChromeExtension: true},
 			{Name: "Twitch", Identifier: "twitch", Editor: "normal", IsChromeExtension: true},
-			{Name: "Mastodon", Identifier: "mastodon", Editor: "normal"},
-			{Name: "Bluesky", Identifier: "bluesky", Editor: "normal"},
-			{Name: "Lemmy", Identifier: "lemmy", Editor: "markdown"},
+			{Name: "Mastodon", Identifier: "mastodon", Editor: "normal", IsExternal: true},
+			{Name: "Bluesky", Identifier: "bluesky", Editor: "normal", CustomFields: []customField{
+				{Key: "service", Label: "Service", DefaultValue: "https://bsky.social", Validation: `/^(https?:\\/\\/)?[a-zA-Z0-9.-]+(:[0-9]+)?$/`, Type: "text"},
+				{Key: "identifier", Label: "Identifier", Validation: `/^.+$/`, Type: "text"},
+				{Key: "password", Label: "Password", Validation: `/^.{3,}$/`, Type: "password"},
+			}},
+			{Name: "Lemmy", Identifier: "lemmy", Editor: "markdown", IsExternal: true},
 			{Name: "Farcaster", Identifier: "farcaster", Editor: "normal", IsWeb3: true},
 			{Name: "Telegram", Identifier: "telegram", Editor: "normal"},
 			{Name: "Nostr", Identifier: "nostr", Editor: "normal", IsWeb3: true},
