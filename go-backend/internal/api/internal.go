@@ -23,6 +23,11 @@ func RegisterPublic(r chi.Router, store *db.Store, rdb *redis.Client) {
 
 	// OAuth callback for social-connect
 	r.Post("/integrations/social-connect/{integration}", handleSocialConnectReal(store, rdb))
+
+	// Copilot / AI agent — public because CopilotKit widget doesn't send auth cookies
+	r.Post("/copilot/chat", handleCopilotStub())
+	r.Get("/copilot/chat", handleEmptyObject())
+	r.Get("/copilot/credits", handleCopilotCredits())
 }
 
 // handleSocialConnect is now replaced by handleSocialConnectReal in social_connect.go
@@ -93,10 +98,7 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Get("/signatures/", handleSignatures())
 	r.Get("/signatures/default", handleDefaultSignature())
 
-	// Copilot / AI agent (stubs)
-	r.Post("/copilot/chat", handleCopilotStub())
-	r.Get("/copilot/chat", handleEmptyObject())
-	r.Get("/copilot/credits", handleCopilotCredits())
+	// Copilot / AI agent (chat/credits are public — see RegisterPublic)
 	r.Get("/copilot/list", handleEmptyArray())
 	r.Get("/copilot/agent", handleEmptyArray())
 	r.Post("/copilot/agent", handleEmptyArray())
