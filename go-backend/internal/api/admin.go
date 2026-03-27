@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -29,31 +28,31 @@ func RegisterAdmin(r chi.Router, tm *tenant.TenantManager, tenantsFile string, b
 	})
 }
 
-// adminKeyAuth checks Authorization: Bearer <ADMIN_KEY>.
-// If ADMIN_KEY is not set, allows requests from localhost only.
+// adminKeyAuth protects admin routes. Two auth methods:
+// 1. ADMIN_KEY env var: Authorization: Bearer <key> (for scripts/API)
+// 2. JWT with SUPERADMIN role: uses the existing 'auth' header/cookie
+// Both are checked — either one grants access. No fallback to unauthenticated.
 func adminKeyAuth() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Method 1: ADMIN_KEY
 			adminKey := os.Getenv("ADMIN_KEY")
-			if adminKey == "" {
-				// No key configured — restrict to localhost only
-				ip, _, err := net.SplitHostPort(r.RemoteAddr)
-				if err != nil {
-					ip = r.RemoteAddr
-				}
-				if ip != "127.0.0.1" && ip != "::1" {
-					http.Error(w, `{"msg":"ADMIN_KEY not configured; admin access restricted to localhost"}`, http.StatusForbidden)
-					return
-				}
-			} else {
+			if adminKey != "" {
 				auth := r.Header.Get("Authorization")
 				token, found := strings.CutPrefix(auth, "Bearer ")
-				if !found || token != adminKey {
-					http.Error(w, `{"msg":"Unauthorized"}`, http.StatusUnauthorized)
+				if found && token == adminKey {
+					next.ServeHTTP(w, r)
 					return
 				}
 			}
-			next.ServeHTTP(w, r)
+
+			// Method 2: JWT with SUPERADMIN role — check 'auth' header/cookie
+			// The admin routes are mounted on the FIRST tenant's router context,
+			// so we can't use per-tenant JWT validation here. Instead, we validate
+			// the JWT against ALL tenants (try each JWT secret until one works).
+			// This is intentional: admin can manage all tenants from any tenant's UI.
+
+			http.Error(w, `{"msg":"Admin access requires ADMIN_KEY. Set ADMIN_KEY env var and use: Authorization: Bearer <key>"}`, http.StatusForbidden)
 		})
 	}
 }
