@@ -52,6 +52,8 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Get("/posts/tags", handleGetTags())
 	r.Post("/posts/should-shortlink", handleShouldShortlink())
 	r.Delete("/posts/{group}", handleDeletePostGroup(store))
+	r.Put("/posts/{id}/date", handleChangeDate(store))
+	r.Get("/posts/{id}/statistics", handleEmptyObject())
 
 	// Integrations (GET /integrations is public — see RegisterPublic)
 	r.Get("/integrations/list", handleIntegrationsList(store))
@@ -75,6 +77,10 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Get("/settings/team", handleSettingsTeam(store))
 	r.Get("/settings/shortlink", handleShortlink())
 	r.Get("/settings/signatures", handleSignatures())
+	r.Get("/settings/webhooks", handleEmptyArray())
+	r.Post("/settings/webhooks", handleEmptyObject())
+	r.Get("/settings/auto-post", handleEmptyArray())
+	r.Post("/settings/auto-post", handleEmptyObject())
 
 	// Sets (content sets — used by calendar for grouping)
 	r.Get("/sets", handleGetSets())
@@ -89,6 +95,7 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 
 	// Copilot / AI agent (stubs)
 	r.Post("/copilot/chat", handleCopilotStub())
+	r.Get("/copilot/chat", handleEmptyObject())
 	r.Get("/copilot/credits", handleCopilotCredits())
 	r.Get("/copilot/list", handleEmptyArray())
 	r.Get("/copilot/agent", handleEmptyArray())
@@ -106,6 +113,7 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Post("/media/upload-simple", handleUpload(store))
 	r.Post("/media/upload-server", handleUpload(store))
 	r.Post("/media/save-media", handleSaveMedia(store))
+	r.Delete("/media/{id}", handleDeleteMedia(store))
 
 	// Plugs (automation plugins)
 	r.Get("/plugs", handleEmptyArray())
@@ -894,6 +902,59 @@ func handleCopilotStub() http.HandlerFunc {
 func handleCopilotCredits() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"credits": 0})
+	}
+}
+
+func handleChangeDate(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		id := chi.URLParam(r, "id")
+
+		var body struct {
+			Date   string `json:"date"`
+			Action string `json:"action"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"msg":"Invalid request"}`, http.StatusBadRequest)
+			return
+		}
+
+		publishDate, err := time.Parse(time.RFC3339, body.Date)
+		if err != nil {
+			http.Error(w, `{"msg":"Invalid date format"}`, http.StatusBadRequest)
+			return
+		}
+
+		if body.Action == "schedule" || body.Action == "" {
+			store.Exec(r.Context(),
+				`UPDATE "Post" SET "publishDate" = $1, state = 'QUEUE', "updatedAt" = NOW() WHERE id = $2 AND "organizationId" = $3`,
+				publishDate, id, org.ID)
+		} else {
+			store.Exec(r.Context(),
+				`UPDATE "Post" SET "publishDate" = $1, "updatedAt" = NOW() WHERE id = $2 AND "organizationId" = $3`,
+				publishDate, id, org.ID)
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	}
+}
+
+func handleDeleteMedia(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		id := chi.URLParam(r, "id")
+		store.Exec(r.Context(),
+			`UPDATE "Media" SET "deletedAt" = NOW() WHERE id = $1 AND "organizationId" = $2`,
+			id, org.ID)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	}
 }
 

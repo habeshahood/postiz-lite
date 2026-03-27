@@ -51,7 +51,7 @@ func handleLogin(store *db.Store, jwtSecret string) http.HandlerFunc {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"id":    user.ID,
 			"orgId": orgID,
-			"exp":   time.Now().Add(24 * time.Hour * 30).Unix(),
+			"exp":   time.Now().Add(365 * 24 * time.Hour).Unix(),
 		})
 
 		tokenStr, err := token.SignedString([]byte(jwtSecret))
