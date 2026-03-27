@@ -20,6 +20,10 @@ import (
 // Protected by a master API key (ADMIN_KEY env var).
 // If ADMIN_KEY is not set, only requests from 127.0.0.1 are allowed.
 func RegisterAdmin(r chi.Router, tm *tenant.TenantManager, tenantsFile string, buildRouter func(store *db.Store, cfg tenant.Config, rdb *redis.Client) chi.Router) {
+	// Admin dashboard page (auth handled client-side via ADMIN_KEY)
+	r.Get("/admin", handleAdminPage())
+	r.Get("/admin/", handleAdminPage())
+
 	// Domain verification for Caddy on-demand TLS (no auth — called by Caddy internally)
 	r.Get("/admin/verify-domain", handleVerifyDomain(tm))
 
