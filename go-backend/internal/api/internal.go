@@ -581,7 +581,8 @@ func handleSaveMedia(store *db.Store) http.HandlerFunc {
 		}
 
 		// The file was already saved by handleUpload at uploadDir/name
-		filePath := uploadDir + "/" + body.Name
+		// Store URL-relative path, not filesystem path
+		filePath := "/uploads/" + body.Name
 
 		var origName *string
 		if body.OriginalName != "" {

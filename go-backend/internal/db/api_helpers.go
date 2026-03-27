@@ -108,5 +108,7 @@ func (s *Store) SaveMediaFromUpload(ctx context.Context, orgID, filename string,
 	}
 
 	orig := filename
-	return s.SaveMedia(ctx, orgID, storedName, storedPath, mediaType, &orig, int(written))
+	// Store URL-relative path (not filesystem path) — Go's per-tenant file server handles the mapping
+	urlPath := "/uploads/" + storedName
+	return s.SaveMedia(ctx, orgID, storedName, urlPath, mediaType, &orig, int(written))
 }
