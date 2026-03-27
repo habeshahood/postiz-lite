@@ -3,8 +3,10 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/habeshahood/postiz-lite/internal/db"
 	"github.com/habeshahood/postiz-lite/internal/middleware"
 	"github.com/redis/go-redis/v9"
@@ -321,8 +323,162 @@ func handleInternalListPosts(store *db.Store) http.HandlerFunc {
 	}
 }
 
+// ---- NestJS CreatePostDto types ----
+
+type createPostRequest struct {
+	Type      string          `json:"type"`      // "draft", "schedule", "now", "update"
+	Date      string          `json:"date"`      // ISO 8601
+	Tags      json.RawMessage `json:"tags"`      // ignored for now
+	ShortLink bool            `json:"shortLink"` // ignored
+	Posts     []postEntry     `json:"posts"`
+}
+
+type postEntry struct {
+	Integration struct {
+		ID string `json:"id"`
+	} `json:"integration"`
+	Value    []postValue     `json:"value"`
+	Settings json.RawMessage `json:"settings"`
+	Group    string          `json:"group"` // empty for new, set for update
+}
+
+type postValue struct {
+	Content string          `json:"content"`
+	ID      string          `json:"id"`    // empty for create, set for update
+	Delay   int             `json:"delay"`
+	Image   json.RawMessage `json:"image"` // JSON array of media objects
+}
+
 func handleInternalCreatePost(store *db.Store) http.HandlerFunc {
-	return handleCreatePost(store) // reuse public handler
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+
+		var req createPostRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"msg":"Invalid JSON"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Determine publish date
+		var publishDate time.Time
+		if req.Type == "now" {
+			publishDate = time.Now().UTC()
+		} else if req.Date != "" {
+			var err error
+			publishDate, err = time.Parse(time.RFC3339, req.Date)
+			if err != nil {
+				// Try millisecond variant
+				publishDate, err = time.Parse("2006-01-02T15:04:05.000Z", req.Date)
+				if err != nil {
+					publishDate = time.Now().UTC()
+				}
+			}
+		} else {
+			publishDate = time.Now().UTC()
+		}
+
+		type createdEntry struct {
+			PostID      string `json:"postId"`
+			Integration string `json:"integration"`
+		}
+		result := make([]createdEntry, 0)
+
+		for _, entry := range req.Posts {
+			integrationID := entry.Integration.ID
+			if integrationID == "" {
+				http.Error(w, `{"msg":"integration.id is required"}`, http.StatusBadRequest)
+				return
+			}
+
+			// Stringify settings once per entry
+			var settingsStr *string
+			if len(entry.Settings) > 0 && string(entry.Settings) != "null" {
+				s := string(entry.Settings)
+				settingsStr = &s
+			}
+
+			// Shared group UUID for all value[] entries in this post entry
+			group := entry.Group
+			if group == "" {
+				group = uuid.New().String()
+			}
+
+			if req.Type == "update" {
+				// Update existing posts matched by value[].id
+				for _, v := range entry.Value {
+					if v.ID == "" {
+						continue
+					}
+					var imageStr *string
+					if len(v.Image) > 0 && string(v.Image) != "null" {
+						s := string(v.Image)
+						imageStr = &s
+					}
+					updated, err := store.UpdatePostContent(r.Context(), v.ID, org.ID, v.Content, imageStr, settingsStr)
+					if err != nil {
+						http.Error(w, `{"msg":"Failed to update post"}`, http.StatusInternalServerError)
+						return
+					}
+					result = append(result, createdEntry{
+						PostID:      updated.ID,
+						Integration: integrationID,
+					})
+				}
+				continue
+			}
+
+			// Create path: chain value[] entries as a thread
+			var prevPostID *string
+			for _, v := range entry.Value {
+				var imageStr *string
+				if len(v.Image) > 0 && string(v.Image) != "null" {
+					s := string(v.Image)
+					imageStr = &s
+				}
+
+				created, err := store.CreatePost(
+					r.Context(),
+					org.ID,
+					integrationID,
+					v.Content,
+					group,
+					publishDate,
+					nil,         // title
+					settingsStr, // settings
+					imageStr,    // image
+					prevPostID,  // parentPostId (nil for first)
+				)
+				if err != nil {
+					http.Error(w, `{"msg":"Failed to create post"}`, http.StatusInternalServerError)
+					return
+				}
+
+				// If draft, update state (CreatePost always inserts as QUEUE)
+				if req.Type == "draft" {
+					if err := store.UpdatePostState(r.Context(), created.ID, db.StateDraft, nil); err != nil {
+						http.Error(w, `{"msg":"Failed to set draft state"}`, http.StatusInternalServerError)
+						return
+					}
+					created.State = db.StateDraft
+				}
+
+				result = append(result, createdEntry{
+					PostID:      created.ID,
+					Integration: integrationID,
+				})
+
+				// Thread: next value[] entry's parent = this post
+				id := created.ID
+				prevPostID = &id
+			}
+		}
+
+		writeJSON(w, http.StatusCreated, result)
+	}
 }
 
 func handleFindSlot() http.HandlerFunc {

@@ -147,6 +147,21 @@ func (s *Store) GetQueuedPosts(ctx context.Context) ([]*Post, error) {
 	return out, rows.Err()
 }
 
+// UpdatePostContent updates the content, image, and settings of an existing post.
+func (s *Store) UpdatePostContent(ctx context.Context, id, orgID, content string, image, settings *string) (*Post, error) {
+	q := fmt.Sprintf(`
+		UPDATE "Post"
+		SET content = $1, image = $2, settings = $3, "updatedAt" = NOW()
+		WHERE id = $4 AND "organizationId" = $5 AND "deletedAt" IS NULL
+		RETURNING %s`, postCols)
+
+	p, err := scanPost(s.pool.QueryRow(ctx, q, content, image, settings, id, orgID))
+	if err != nil {
+		return nil, fmt.Errorf("UpdatePostContent: %w", err)
+	}
+	return p, nil
+}
+
 // UpdatePostState transitions a post to the given state and optionally records
 // an error message (used when transitioning to StateError).
 func (s *Store) UpdatePostState(ctx context.Context, id string, state State, errMsg *string) error {
