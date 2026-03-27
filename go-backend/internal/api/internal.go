@@ -48,12 +48,14 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Get("/posts/old", handleOldPosts(store))
 	r.Get("/posts/group/{group}", handlePostGroup(store))
 	r.Get("/posts/tags", handleGetTags())
+	r.Post("/posts/should-shortlink", handleShouldShortlink())
 	r.Delete("/posts/{group}", handleDeletePostGroup(store))
 
 	// Integrations (GET /integrations is public — see RegisterPublic)
 	r.Get("/integrations/list", handleIntegrationsList(store))
 	r.Get("/integrations/social/{integration}", handleSocialOAuthURLReal(store, rdb))
 	r.Get("/integrations/{id}", handleGetIntegration(store))
+	r.Get("/integrations/{id}/internal-plugs", handleEmptyArray())
 	r.Post("/integrations/disable", handleIntegrationToggle(store, true))
 	r.Post("/integrations/enable", handleIntegrationToggle(store, false))
 	r.Delete("/integrations/", handleDeleteIntegrationInternal(store))
@@ -802,6 +804,14 @@ func handleCopilotCredits() http.HandlerFunc {
 }
 
 // handleEmptyArray returns [] — used as a stub for list endpoints.
+// handleShouldShortlink stubs the short-link check.
+// The NestJS version checks if messages should be auto-shortened. We always say no.
+func handleShouldShortlink() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"ask": false})
+	}
+}
+
 func handleEmptyArray() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []any{})
