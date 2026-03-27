@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,12 +20,198 @@ import (
 	"github.com/habeshahood/postiz-lite/internal/db"
 	"github.com/habeshahood/postiz-lite/internal/middleware"
 	"github.com/habeshahood/postiz-lite/internal/scheduler"
+	"github.com/habeshahood/postiz-lite/internal/tenant"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
+	tenantsFile := os.Getenv("TENANTS_FILE")
+	if tenantsFile == "" {
+		tenantsFile = "/config/tenants.json"
+	}
+
+	configs, err := tenant.LoadConfigs(tenantsFile)
+	if err != nil {
+		slog.Warn("no tenants.json, falling back to single-tenant mode", "error", err)
+		runSingleTenant()
+		return
+	}
+
+	runMultiTenant(configs)
+}
+
+// liveTenant holds all per-tenant live resources.
+type liveTenant struct {
+	id        string
+	router    chi.Router
+	sched     *scheduler.Scheduler
+	pool      interface{ Close() }
+	rdb       *redis.Client
+}
+
+func runMultiTenant(configs []tenant.Config) {
+	ctx := context.Background()
+
+	hostMap := make(map[string]*liveTenant)
+	tenants := make([]*liveTenant, 0, len(configs))
+
+	for _, cfg := range configs {
+		cfg := cfg // capture
+
+		pool, err := db.Connect(ctx, cfg.DatabaseURL)
+		if err != nil {
+			slog.Error("failed to connect to database", "tenant", cfg.ID, "error", err)
+			os.Exit(1)
+		}
+
+		var rdb *redis.Client
+		redisURL := cfg.RedisURL
+		if redisURL == "" {
+			redisURL = "redis://localhost:6379"
+		}
+		opts, err := redis.ParseURL(redisURL)
+		if err != nil {
+			slog.Error("invalid redis_url", "tenant", cfg.ID, "error", err)
+			os.Exit(1)
+		}
+		rdb = redis.NewClient(opts)
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			slog.Error("failed to ping Redis", "tenant", cfg.ID, "error", err)
+			os.Exit(1)
+		}
+
+		store := db.NewStore(pool)
+
+		uploadDir := cfg.UploadDir
+		if uploadDir == "" {
+			uploadDir = "/uploads"
+		}
+
+		socialKeys := cfg.Social // copy
+
+		r := chi.NewRouter()
+		r.Use(chimw.Recoverer)
+		r.Use(chimw.RealIP)
+		r.Use(chimw.Compress(5))
+		r.Use(cors.Handler(cors.Options{
+			AllowedOrigins:   []string{cfg.FrontendURL, "http://localhost:*"},
+			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "auth", "showorg", "impersonate", "reload", "onboarding"},
+			AllowCredentials: true,
+			MaxAge:           300,
+		}))
+
+		// Inject tenant context for every request
+		tenantID := cfg.ID
+		frontendURL := cfg.FrontendURL
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				c := req.Context()
+				c = tenant.WithTenantID(c, tenantID)
+				c = tenant.WithSocialKeys(c, &socialKeys)
+				c = tenant.WithFrontendURL(c, frontendURL)
+				c = tenant.WithUploadDir(c, uploadDir)
+				next.ServeHTTP(w, req.WithContext(c))
+			})
+		})
+
+		r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+			fmt.Fprintf(w, `{"status":"ok","tenant":"%s"}`, tenantID)
+		})
+
+		r.Handle("/uploads/*", http.StripPrefix("/uploads", http.FileServer(http.Dir(uploadDir))))
+
+		mountAPI(r, "", store, cfg.JWTSecret, rdb)
+
+		sched := scheduler.New(store)
+		sched.Start()
+
+		lt := &liveTenant{
+			id:     cfg.ID,
+			router: r,
+			sched:  sched,
+			pool:   pool,
+			rdb:    rdb,
+		}
+
+		for _, host := range cfg.Hosts {
+			hostMap[host] = lt
+		}
+		tenants = append(tenants, lt)
+
+		slog.Info("tenant initialized", "id", cfg.ID, "hosts", cfg.Hosts)
+	}
+
+	dispatch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Priority: X-Forwarded-Host (SSR/proxy) > Host (direct)
+		host := strings.ToLower(r.Header.Get("X-Forwarded-Host"))
+		if host == "" {
+			host = strings.ToLower(r.Host)
+		}
+		// Exact match (includes port)
+		if lt, ok := hostMap[host]; ok {
+			lt.router.ServeHTTP(w, r)
+			return
+		}
+		// Strip port and retry
+		if idx := strings.LastIndex(host, ":"); idx != -1 {
+			if lt, ok := hostMap[host[:idx]]; ok {
+				lt.router.ServeHTTP(w, r)
+				return
+			}
+		}
+		// Fallback: first tenant (localhost dev)
+		if len(tenants) > 0 {
+			tenants[0].router.ServeHTTP(w, r)
+			return
+		}
+		http.Error(w, `{"msg":"Unknown tenant"}`, http.StatusNotFound)
+	})
+
+	port := 3000
+	if p := os.Getenv("PORT"); p != "" {
+		fmt.Sscanf(p, "%d", &port)
+	}
+	bindAddr := os.Getenv("BIND_ADDR")
+	if bindAddr == "" {
+		bindAddr = "127.0.0.1"
+	}
+
+	srv := &http.Server{
+		Addr:         fmt.Sprintf("%s:%d", bindAddr, port),
+		Handler:      dispatch,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	go func() {
+		slog.Info("postiz-lite multi-tenant starting", "port", port, "bind", bindAddr, "tenants", len(tenants))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("shutting down")
+	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	srv.Shutdown(shutCtx)
+
+	for _, lt := range tenants {
+		lt.sched.Stop()
+		lt.rdb.Close()
+		lt.pool.Close()
+	}
+}
+
+func runSingleTenant() {
 	cfg := loadConfig()
 
 	pool, err := db.Connect(context.Background(), cfg.DatabaseURL)
