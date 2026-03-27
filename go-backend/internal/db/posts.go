@@ -85,7 +85,8 @@ func (s *Store) ListPosts(ctx context.Context, orgID string) ([]*Post, error) {
 		SELECT %s
 		FROM "Post"
 		WHERE "organizationId" = $1 AND "deletedAt" IS NULL
-		ORDER BY "publishDate" DESC`, postCols)
+		ORDER BY "publishDate" DESC
+		LIMIT 500`, postCols)
 
 	rows, err := s.pool.Query(ctx, q, orgID)
 	if err != nil {
