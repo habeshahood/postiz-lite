@@ -3,27 +3,28 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 // AutoPost matches the Prisma AutoPost model.
 type AutoPost struct {
-	ID              string  `db:"id" json:"id"`
-	OrganizationID  string  `db:"organizationId" json:"organizationId"`
-	Title           string  `db:"title" json:"title"`
-	Content         *string `db:"content" json:"content"`
-	OnSlot          bool    `db:"onSlot" json:"onSlot"`
-	SyncLast        bool    `db:"syncLast" json:"syncLast"`
-	URL             string  `db:"url" json:"url"`
-	LastURL         string  `db:"lastUrl" json:"lastUrl"`
-	Active          bool    `db:"active" json:"active"`
-	AddPicture      bool    `db:"addPicture" json:"addPicture"`
-	GenerateContent bool    `db:"generateContent" json:"generateContent"`
-	Integrations    string  `db:"integrations" json:"integrations"`
-	DeletedAt       *string `db:"deletedAt" json:"deletedAt"`
-	CreatedAt       string  `db:"createdAt" json:"createdAt"`
-	UpdatedAt       string  `db:"updatedAt" json:"updatedAt"`
+	ID              string     `db:"id" json:"id"`
+	OrganizationID  string     `db:"organizationId" json:"organizationId"`
+	Title           string     `db:"title" json:"title"`
+	Content         *string    `db:"content" json:"content"`
+	OnSlot          bool       `db:"onSlot" json:"onSlot"`
+	SyncLast        bool       `db:"syncLast" json:"syncLast"`
+	URL             string     `db:"url" json:"url"`
+	LastURL         string     `db:"lastUrl" json:"lastUrl"`
+	Active          bool       `db:"active" json:"active"`
+	AddPicture      bool       `db:"addPicture" json:"addPicture"`
+	GenerateContent bool       `db:"generateContent" json:"generateContent"`
+	Integrations    string     `db:"integrations" json:"integrations"`
+	DeletedAt       *time.Time `db:"deletedAt" json:"deletedAt"`
+	CreatedAt       time.Time  `db:"createdAt" json:"createdAt"`
+	UpdatedAt       time.Time  `db:"updatedAt" json:"updatedAt"`
 }
 
 const autoPostCols = `id, "organizationId", title, content, "onSlot", "syncLast", url,

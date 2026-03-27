@@ -3,19 +3,20 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
 
-// Webhook matches the Prisma Webhook model.
+// Webhook matches the Prisma Webhooks model.
 type Webhook struct {
-	ID             string  `db:"id" json:"id"`
-	Name           string  `db:"name" json:"name"`
-	OrganizationID string  `db:"organizationId" json:"organizationId"`
-	URL            string  `db:"url" json:"url"`
-	DeletedAt      *string `db:"deletedAt" json:"deletedAt"`
-	CreatedAt      string  `db:"createdAt" json:"createdAt"`
-	UpdatedAt      string  `db:"updatedAt" json:"updatedAt"`
+	ID             string     `db:"id" json:"id"`
+	Name           string     `db:"name" json:"name"`
+	OrganizationID string     `db:"organizationId" json:"organizationId"`
+	URL            string     `db:"url" json:"url"`
+	DeletedAt      *time.Time `db:"deletedAt" json:"deletedAt"`
+	CreatedAt      time.Time  `db:"createdAt" json:"createdAt"`
+	UpdatedAt      time.Time  `db:"updatedAt" json:"updatedAt"`
 }
 
 const webhookCols = `id, name, "organizationId", url, "deletedAt", "createdAt", "updatedAt"`
@@ -30,7 +31,7 @@ func scanWebhook(row interface{ Scan(...any) error }) (*Webhook, error) {
 func (s *Store) ListWebhooks(ctx context.Context, orgID string) ([]*Webhook, error) {
 	q := fmt.Sprintf(`
 		SELECT %s
-		FROM "Webhook"
+		FROM "Webhooks"
 		WHERE "deletedAt" IS NULL AND "organizationId" = $1
 		ORDER BY "createdAt" DESC`, webhookCols)
 
@@ -56,7 +57,7 @@ func (s *Store) CreateWebhook(ctx context.Context, orgID, name, url string) (*We
 	id := uuid.New().String()
 
 	q := fmt.Sprintf(`
-		INSERT INTO "Webhook" (id, name, "organizationId", url, "createdAt", "updatedAt")
+		INSERT INTO "Webhooks" (id, name, "organizationId", url, "createdAt", "updatedAt")
 		VALUES ($1, $2, $3, $4, NOW(), NOW())
 		RETURNING %s`, webhookCols)
 
@@ -70,7 +71,7 @@ func (s *Store) CreateWebhook(ctx context.Context, orgID, name, url string) (*We
 // UpdateWebhook updates the name and url of an existing webhook.
 func (s *Store) UpdateWebhook(ctx context.Context, orgID, id, name, url string) error {
 	const q = `
-		UPDATE "Webhook"
+		UPDATE "Webhooks"
 		SET name = $1, url = $2, "updatedAt" = NOW()
 		WHERE id = $3 AND "organizationId" = $4 AND "deletedAt" IS NULL`
 
@@ -87,7 +88,7 @@ func (s *Store) UpdateWebhook(ctx context.Context, orgID, id, name, url string) 
 // DeleteWebhook soft-deletes a webhook by setting deletedAt.
 func (s *Store) DeleteWebhook(ctx context.Context, orgID, id string) error {
 	const q = `
-		UPDATE "Webhook"
+		UPDATE "Webhooks"
 		SET "deletedAt" = NOW(), "updatedAt" = NOW()
 		WHERE id = $1 AND "organizationId" = $2 AND "deletedAt" IS NULL`
 

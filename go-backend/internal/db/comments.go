@@ -3,20 +3,21 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
 
-// Comment matches the Prisma Comment model.
+// Comment matches the Prisma Comments model.
 type Comment struct {
-	ID             string  `db:"id" json:"id"`
-	Content        string  `db:"content" json:"content"`
-	OrganizationID string  `db:"organizationId" json:"organizationId"`
-	PostID         string  `db:"postId" json:"postId"`
-	UserID         string  `db:"userId" json:"userId"`
-	CreatedAt      string  `db:"createdAt" json:"createdAt"`
-	UpdatedAt      string  `db:"updatedAt" json:"updatedAt"`
-	DeletedAt      *string `db:"deletedAt" json:"deletedAt"`
+	ID             string     `db:"id" json:"id"`
+	Content        string     `db:"content" json:"content"`
+	OrganizationID string     `db:"organizationId" json:"organizationId"`
+	PostID         string     `db:"postId" json:"postId"`
+	UserID         string     `db:"userId" json:"userId"`
+	CreatedAt      time.Time  `db:"createdAt" json:"createdAt"`
+	UpdatedAt      time.Time  `db:"updatedAt" json:"updatedAt"`
+	DeletedAt      *time.Time `db:"deletedAt" json:"deletedAt"`
 }
 
 const commentCols = `id, content, "organizationId", "postId", "userId", "createdAt", "updatedAt", "deletedAt"`
@@ -40,7 +41,7 @@ func scanComment(row interface{ Scan(...any) error }) (*Comment, error) {
 func (s *Store) ListComments(ctx context.Context, postID, orgID string) ([]*Comment, error) {
 	q := fmt.Sprintf(`
 		SELECT %s
-		FROM "Comment"
+		FROM "Comments"
 		WHERE "postId" = $1 AND "organizationId" = $2 AND "deletedAt" IS NULL
 		ORDER BY "createdAt" ASC`, commentCols)
 
@@ -66,7 +67,7 @@ func (s *Store) CreateComment(ctx context.Context, orgID, postID, userID, conten
 	id := uuid.New().String()
 
 	q := fmt.Sprintf(`
-		INSERT INTO "Comment" (id, content, "organizationId", "postId", "userId", "createdAt", "updatedAt")
+		INSERT INTO "Comments" (id, content, "organizationId", "postId", "userId", "createdAt", "updatedAt")
 		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 		RETURNING %s`, commentCols)
 
