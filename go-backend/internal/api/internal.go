@@ -59,6 +59,8 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Delete("/posts/{group}", handleDeletePostGroup(store))
 	r.Put("/posts/{id}/date", handleChangeDate(store))
 	r.Get("/posts/{id}/statistics", handleEmptyObject())
+	r.Get("/posts/{id}/comments", handleListComments(store))
+	r.Post("/posts/{id}/comments", handleCreateComment(store))
 
 	// Integrations (GET /integrations is public — see RegisterPublic)
 	r.Get("/integrations/list", handleIntegrationsList(store))
@@ -82,10 +84,15 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Get("/settings/team", handleSettingsTeam(store))
 	r.Get("/settings/shortlink", handleShortlink())
 	r.Get("/settings/signatures", handleSignatures())
-	r.Get("/settings/webhooks", handleEmptyArray())
-	r.Post("/settings/webhooks", handleEmptyObject())
-	r.Get("/settings/auto-post", handleEmptyArray())
-	r.Post("/settings/auto-post", handleEmptyObject())
+	r.Get("/settings/webhooks", handleListWebhooks(store))
+	r.Post("/settings/webhooks", handleCreateWebhook(store))
+	r.Put("/settings/webhooks", handleUpdateWebhook(store))
+	r.Delete("/settings/webhooks/{id}", handleDeleteWebhook(store))
+	r.Get("/settings/auto-post", handleListAutoPosts(store))
+	r.Post("/settings/auto-post", handleCreateAutoPost(store))
+	r.Put("/settings/auto-post/{id}", handleUpdateAutoPost(store))
+	r.Delete("/settings/auto-post/{id}", handleDeleteAutoPost(store))
+	r.Post("/settings/auto-post/{id}/active", handleSetAutoPostActive(store))
 
 	// Sets (content sets — used by calendar for grouping)
 	r.Get("/sets", handleGetSets())
@@ -980,5 +987,244 @@ func handleEmptyArray() http.HandlerFunc {
 func handleEmptyObject() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{})
+	}
+}
+
+// ---- Webhook handlers ----
+
+func handleListWebhooks(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		webhooks, err := store.ListWebhooks(r.Context(), org.ID)
+		if err != nil {
+			http.Error(w, `{"msg":"Internal error"}`, http.StatusInternalServerError)
+			return
+		}
+		if webhooks == nil {
+			webhooks = []*db.Webhook{}
+		}
+		writeJSON(w, http.StatusOK, webhooks)
+	}
+}
+
+func handleCreateWebhook(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.Name == "" || body.URL == "" {
+			http.Error(w, `{"msg":"name and url required"}`, http.StatusBadRequest)
+			return
+		}
+		wh, err := store.CreateWebhook(r.Context(), org.ID, body.Name, body.URL)
+		if err != nil {
+			http.Error(w, `{"msg":"Failed to create webhook"}`, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, wh)
+	}
+}
+
+func handleUpdateWebhook(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.ID == "" || body.Name == "" || body.URL == "" {
+			http.Error(w, `{"msg":"id, name and url required"}`, http.StatusBadRequest)
+			return
+		}
+		if err := store.UpdateWebhook(r.Context(), org.ID, body.ID, body.Name, body.URL); err != nil {
+			http.Error(w, `{"msg":"Failed to update webhook"}`, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	}
+}
+
+func handleDeleteWebhook(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		id := chi.URLParam(r, "id")
+		if err := store.DeleteWebhook(r.Context(), org.ID, id); err != nil {
+			http.Error(w, `{"msg":"Failed to delete webhook"}`, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	}
+}
+
+// ---- Auto-post handlers ----
+
+func handleListAutoPosts(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		autoposts, err := store.ListAutoPosts(r.Context(), org.ID)
+		if err != nil {
+			http.Error(w, `{"msg":"Internal error"}`, http.StatusInternalServerError)
+			return
+		}
+		if autoposts == nil {
+			autoposts = []*db.AutoPost{}
+		}
+		writeJSON(w, http.StatusOK, autoposts)
+	}
+}
+
+func handleCreateAutoPost(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"msg":"Invalid JSON"}`, http.StatusBadRequest)
+			return
+		}
+		ap, err := store.CreateAutoPost(r.Context(), org.ID, body)
+		if err != nil {
+			http.Error(w, `{"msg":"Failed to create auto-post"}`, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, ap)
+	}
+}
+
+func handleUpdateAutoPost(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		id := chi.URLParam(r, "id")
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"msg":"Invalid JSON"}`, http.StatusBadRequest)
+			return
+		}
+		ap, err := store.UpdateAutoPost(r.Context(), org.ID, id, body)
+		if err != nil {
+			http.Error(w, `{"msg":"Failed to update auto-post"}`, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, ap)
+	}
+}
+
+func handleDeleteAutoPost(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		id := chi.URLParam(r, "id")
+		if err := store.DeleteAutoPost(r.Context(), org.ID, id); err != nil {
+			http.Error(w, `{"msg":"Failed to delete auto-post"}`, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	}
+}
+
+func handleSetAutoPostActive(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		id := chi.URLParam(r, "id")
+		var body struct {
+			Active bool `json:"active"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if err := store.SetAutoPostActive(r.Context(), org.ID, id, body.Active); err != nil {
+			http.Error(w, `{"msg":"Failed to update auto-post active state"}`, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	}
+}
+
+// ---- Comment handlers ----
+
+func handleListComments(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		postID := chi.URLParam(r, "id")
+		comments, err := store.ListComments(r.Context(), postID, org.ID)
+		if err != nil {
+			http.Error(w, `{"msg":"Internal error"}`, http.StatusInternalServerError)
+			return
+		}
+		if comments == nil {
+			comments = []*db.Comment{}
+		}
+		writeJSON(w, http.StatusOK, comments)
+	}
+}
+
+func handleCreateComment(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		user := middleware.GetUser(r)
+		if user == nil {
+			http.Error(w, `{"msg":"Not authenticated"}`, http.StatusUnauthorized)
+			return
+		}
+		postID := chi.URLParam(r, "id")
+		var body struct {
+			Content string `json:"content"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.Content == "" {
+			http.Error(w, `{"msg":"content required"}`, http.StatusBadRequest)
+			return
+		}
+		c, err := store.CreateComment(r.Context(), org.ID, postID, user.ID, body.Content)
+		if err != nil {
+			http.Error(w, `{"msg":"Failed to create comment"}`, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, c)
 	}
 }
