@@ -102,7 +102,29 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 			rt = &refreshToken
 		}
 
-		// Create or update the integration
+		// If this is a refresh, update the existing integration instead of creating a duplicate.
+		// body.Refresh contains the internalId of the integration to refresh.
+		if body.Refresh != "" {
+			const refreshQ = `UPDATE "Integration" SET token = $1, "refreshToken" = $2, "tokenExpiration" = $3,
+				"refreshNeeded" = false, "updatedAt" = NOW()
+				WHERE "internalId" = $4 AND "organizationId" = $5 AND "deletedAt" IS NULL`
+			tag, rerr := store.Exec(ctx, refreshQ, accessToken, rt, tokenExpiration, body.Refresh, orgID)
+			if rerr == nil && tag.RowsAffected() > 0 {
+				slog.Info("OAuth refresh successful", "provider", integration, "internalId", body.Refresh)
+				writeJSON(w, http.StatusOK, map[string]any{
+					"internalId": body.Refresh,
+					"name":       userName,
+					"identifier": integration,
+					"onboarding": false,
+					"pages":      []any{},
+				})
+				rdb.Del(ctx, "organization:"+body.State, "login:"+body.State, "refresh:"+body.State)
+				return
+			}
+			slog.Warn("refresh update failed (no matching integration), creating new", "internalId", body.Refresh)
+		}
+
+		// Create new integration
 		result, err := store.CreateIntegration(ctx,
 			orgID, userID, userName, integration, "social", accessToken,
 			rt, tokenExpiration,
