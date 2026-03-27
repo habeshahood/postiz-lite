@@ -23,7 +23,7 @@ type socialConnectRequest struct {
 	State        string `json:"state"`
 	CodeVerifier string `json:"codeVerifier"`
 	Refresh      string `json:"refresh"`
-	Timezone     int    `json:"timezone"`
+	Timezone     any    `json:"timezone"`
 }
 
 // handleSocialConnectReal exchanges the OAuth code for tokens and saves the integration.
@@ -31,8 +31,11 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 	return func(w http.ResponseWriter, r *http.Request) {
 		integration := chi.URLParam(r, "integration")
 
+		// Parse body — accept both JSON and form-encoded
+		raw, _ := io.ReadAll(r.Body)
 		var body socialConnectRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.Unmarshal(raw, &body); err != nil {
+			slog.Error("social-connect body parse error", "error", err, "body", string(raw[:min(len(raw), 200)]))
 			http.Error(w, `{"msg":"Invalid request body"}`, http.StatusBadRequest)
 			return
 		}
@@ -42,11 +45,17 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 			return
 		}
 
+		slog.Info("social-connect attempt", "provider", integration, "state", body.State, "hasCode", body.Code != "")
+
 		// Look up the org from Redis (stored when the OAuth URL was generated)
 		ctx := context.Background()
 		orgID, err := rdb.Get(ctx, "organization:"+body.State).Result()
 		if err != nil || orgID == "" {
-			http.Error(w, `{"msg":"Invalid or expired state"}`, http.StatusBadRequest)
+			slog.Error("social-connect state not found in Redis", "state", body.State, "error", err)
+			// List all organization keys for debugging
+			keys, _ := rdb.Keys(ctx, "organization:*").Result()
+			slog.Error("available organization keys", "count", len(keys), "keys", keys)
+			http.Error(w, `{"msg":"Invalid or expired state — try adding the channel again"}`, http.StatusBadRequest)
 			return
 		}
 
