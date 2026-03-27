@@ -60,7 +60,7 @@ func (s *Scheduler) loop() {
 }
 
 func (s *Scheduler) processDuePosts() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(s.tenantCtx, 30*time.Second)
 	defer cancel()
 
 	posts, err := s.store.GetQueuedPosts(ctx)
