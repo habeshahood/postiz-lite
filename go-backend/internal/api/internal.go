@@ -12,21 +12,16 @@ import (
 
 // RegisterPublic mounts routes that require NO authentication.
 // These match the NestJS NoAuthIntegrationsController.
-func RegisterPublic(r chi.Router, store *db.Store) {
+func RegisterPublic(r chi.Router, store *db.Store, rdb *redis.Client) {
 	// Provider catalog — list of all available platforms (Add Channel modal)
 	r.Get("/integrations", handleInternalListIntegrations(store))
 	r.Get("/integrations/", handleInternalListIntegrations(store))
 
 	// OAuth callback for social-connect
-	r.Post("/integrations/social-connect/{integration}", handleSocialConnect())
+	r.Post("/integrations/social-connect/{integration}", handleSocialConnectReal(store, rdb))
 }
 
-func handleSocialConnect() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Stub — OAuth connect flow needs Redis state management
-		http.Error(w, `{"msg":"OAuth connect not yet implemented in postiz-lite"}`, http.StatusNotImplemented)
-	}
-}
+// handleSocialConnect is now replaced by handleSocialConnectReal in social_connect.go
 
 // RegisterInternal mounts all JWT-protected internal API routes (used by Next.js frontend).
 // rdb may be nil if Redis is not configured.

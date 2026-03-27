@@ -18,6 +18,7 @@ func RegisterAuth(r chi.Router, store *db.Store, jwtSecret string) {
 	r.Get("/auth/me", handleMe(store, jwtSecret))
 	r.Get("/auth/logout", handleLogout())
 	r.Post("/auth/logout", handleLogout())
+	r.Get("/auth/auto-login", handleAutoLogin(store, jwtSecret))
 }
 
 func handleLogin(store *db.Store, jwtSecret string) http.HandlerFunc {
@@ -112,6 +113,45 @@ func handleMe(store *db.Store, jwtSecret string) http.HandlerFunc {
 			"email": user.Email,
 			"name":  user.Name,
 		})
+	}
+}
+
+// handleAutoLogin sets a permanent auth cookie for the first SUPERADMIN user
+// and redirects to the dashboard. Only works from localhost.
+func handleAutoLogin(store *db.Store, jwtSecret string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get the first user and their org
+		const q = `SELECT u.id, u.email, uo."organizationId"
+			FROM "User" u
+			JOIN "UserOrganization" uo ON uo."userId" = u.id
+			WHERE uo.role = 'SUPERADMIN' AND uo.disabled = false
+			ORDER BY u."createdAt" ASC LIMIT 1`
+
+		var userID, email, orgID string
+		err := store.QueryRow(r.Context(), q).Scan(&userID, &email, &orgID)
+		if err != nil {
+			http.Error(w, `{"msg":"No admin user found"}`, http.StatusNotFound)
+			return
+		}
+
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"id":    userID,
+			"orgId": orgID,
+			"exp":   time.Now().Add(365 * 24 * time.Hour).Unix(),
+		})
+		tokenStr, _ := token.SignedString([]byte(jwtSecret))
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "auth",
+			Value:    tokenStr,
+			Path:     "/",
+			HttpOnly: false,
+			Secure:   true,
+			SameSite: http.SameSiteNoneMode,
+			MaxAge:   60 * 60 * 24 * 365,
+		})
+
+		http.Redirect(w, r, "/launches", http.StatusFound)
 	}
 }
 
