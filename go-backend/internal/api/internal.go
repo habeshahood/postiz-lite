@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/habeshahood/postiz-lite/internal/db"
 	"github.com/habeshahood/postiz-lite/internal/middleware"
+	"github.com/redis/go-redis/v9"
 )
 
 // RegisterPublic mounts routes that require NO authentication.
@@ -28,7 +29,8 @@ func handleSocialConnect() http.HandlerFunc {
 }
 
 // RegisterInternal mounts all JWT-protected internal API routes (used by Next.js frontend).
-func RegisterInternal(r chi.Router, store *db.Store) {
+// rdb may be nil if Redis is not configured.
+func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	// User
 	r.Get("/user/self", handleSelf(store))
 	r.Get("/user/organizations", handleOrganizations(store))
@@ -53,7 +55,7 @@ func RegisterInternal(r chi.Router, store *db.Store) {
 
 	// Integrations (GET /integrations is public — see RegisterPublic)
 	r.Get("/integrations/list", handleIntegrationsList(store))
-	r.Get("/integrations/social/{integration}", handleSocialOAuthURL())
+	r.Get("/integrations/social/{integration}", handleSocialOAuthURLReal(store, rdb))
 	r.Get("/integrations/{id}", handleGetIntegration(store))
 	r.Post("/integrations/disable", handleIntegrationToggle(store, true))
 	r.Post("/integrations/enable", handleIntegrationToggle(store, false))
@@ -522,18 +524,7 @@ func handleIntegrationsList(store *db.Store) http.HandlerFunc {
 	}
 }
 
-func handleSocialOAuthURL() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Stub — OAuth URL generation will come later
-		integration := chi.URLParam(r, "integration")
-		writeJSON(w, http.StatusOK, map[string]any{
-			"url":          "",
-			"codeVerifier": "",
-			"state":        "",
-			"integration":  integration,
-		})
-	}
-}
+// handleSocialOAuthURL is now replaced by handleSocialOAuthURLReal in oauth.go
 
 func handleGetIntegration(store *db.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

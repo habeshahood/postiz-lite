@@ -19,6 +19,7 @@ import (
 	"github.com/habeshahood/postiz-lite/internal/db"
 	"github.com/habeshahood/postiz-lite/internal/middleware"
 	"github.com/habeshahood/postiz-lite/internal/scheduler"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -34,6 +35,9 @@ func main() {
 	defer pool.Close()
 
 	store := db.NewStore(pool)
+
+	// Connect to Redis (for OAuth state management)
+	rdb := api.NewRedisClient()
 
 	// Start the post scheduler (replaces Temporal)
 	sched := scheduler.New(store)
@@ -66,14 +70,8 @@ func main() {
 	r.Handle("/uploads/*", http.StripPrefix("/uploads", http.FileServer(http.Dir(uploadDir))))
 
 	// Mount API routes at the configured prefix.
-	//
-	// Behind nginx (Docker): nginx strips /api/ prefix, so routes arrive at /auth/login etc.
-	//   → API_PREFIX="" (default), PORT=3000
-	//
-	// Standalone (no nginx): routes arrive as /api/auth/login etc.
-	//   → API_PREFIX="/api", PORT=5000
 	prefix := cfg.APIPrefix
-	mountAPI(r, prefix, store, cfg.JWTSecret)
+	mountAPI(r, prefix, store, cfg.JWTSecret, rdb)
 
 	// Reverse proxy to Next.js frontend (standalone mode only)
 	if cfg.FrontendInternalURL != "" {
@@ -122,7 +120,7 @@ func main() {
 // mountAPI registers all API routes under the given prefix.
 // prefix="" → routes at /auth/login, /posts, etc. (behind nginx)
 // prefix="/api" → routes at /api/auth/login, /api/posts, etc. (standalone)
-func mountAPI(r chi.Router, prefix string, store *db.Store, jwtSecret string) {
+func mountAPI(r chi.Router, prefix string, store *db.Store, jwtSecret string, rdb *redis.Client) {
 	mount := func(r chi.Router) {
 		// Public API v1 (Rust client uses /public/v1/*)
 		r.Route("/public/v1", func(r chi.Router) {
@@ -139,7 +137,7 @@ func mountAPI(r chi.Router, prefix string, store *db.Store, jwtSecret string) {
 		// JWT-protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.JWTAuth(jwtSecret, store))
-			api.RegisterInternal(r, store)
+			api.RegisterInternal(r, store, rdb)
 		})
 	}
 
