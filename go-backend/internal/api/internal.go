@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -98,7 +99,7 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Get("/third-party/list", handleEmptyArray())
 
 	// Media library
-	r.Get("/media", handleEmptyArray())
+	r.Get("/media", handleListMedia(store))
 	r.Get("/media/", handleEmptyArray())
 	r.Get("/media/video-options", handleEmptyArray())
 	r.Post("/media/upload-simple", handleUpload(store))
@@ -488,6 +489,49 @@ func handleFindSlot() http.HandlerFunc {
 		// Return a default slot — next hour rounded up
 		writeJSON(w, http.StatusOK, map[string]any{
 			"date": "2025-01-01T10:00:00.000Z",
+		})
+	}
+}
+
+func handleListMedia(store *db.Store) http.HandlerFunc {
+	const perPage = 18
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		page := 1
+		if p := r.URL.Query().Get("page"); p != "" {
+			fmt.Sscanf(p, "%d", &page)
+		}
+		if page < 1 {
+			page = 1
+		}
+
+		media, err := store.ListMedia(r.Context(), org.ID)
+		if err != nil {
+			http.Error(w, `{"msg":"Internal error"}`, http.StatusInternalServerError)
+			return
+		}
+		if media == nil {
+			media = []*db.Media{}
+		}
+
+		total := len(media)
+		pages := (total + perPage - 1) / perPage
+		start := (page - 1) * perPage
+		end := start + perPage
+		if start > total {
+			start = total
+		}
+		if end > total {
+			end = total
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"pages":   pages,
+			"results": media[start:end],
 		})
 	}
 }

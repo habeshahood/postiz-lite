@@ -46,6 +46,31 @@ func (s *Store) SaveMedia(ctx context.Context, orgID, name, path, mediaType stri
 	return m, nil
 }
 
+// ListMedia returns all non-deleted media for an org, newest first.
+func (s *Store) ListMedia(ctx context.Context, orgID string) ([]*Media, error) {
+	q := fmt.Sprintf(`
+		SELECT %s
+		FROM "Media"
+		WHERE "organizationId" = $1 AND "deletedAt" IS NULL
+		ORDER BY "createdAt" DESC`, mediaCols)
+
+	rows, err := s.pool.Query(ctx, q, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("ListMedia: %w", err)
+	}
+	defer rows.Close()
+
+	var result []*Media
+	for rows.Next() {
+		m, err := scanMedia(rows)
+		if err != nil {
+			return nil, fmt.Errorf("ListMedia scan: %w", err)
+		}
+		result = append(result, m)
+	}
+	return result, nil
+}
+
 // GetMedia returns a single non-deleted Media record by id scoped to an org.
 func (s *Store) GetMedia(ctx context.Context, id, orgID string) (*Media, error) {
 	q := fmt.Sprintf(`

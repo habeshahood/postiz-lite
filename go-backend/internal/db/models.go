@@ -94,38 +94,38 @@ type Integration struct {
 
 // Post matches the Prisma Post model.
 type Post struct {
-	ID             string     `db:"id"`
-	State          State      `db:"state"`
-	PublishDate    time.Time  `db:"publishDate"`
-	OrganizationID string     `db:"organizationId"`
-	IntegrationID  string     `db:"integrationId"`
-	Content        string     `db:"content"`
-	Delay          int        `db:"delay"`
-	Group          string     `db:"group"`
-	Title          *string    `db:"title"`
-	Description    *string    `db:"description"`
-	ParentPostID   *string    `db:"parentPostId"`
-	ReleaseID      *string    `db:"releaseId"`
-	ReleaseURL     *string    `db:"releaseURL"`
-	Settings       *string    `db:"settings"`
-	Image          *string    `db:"image"`
-	Error          *string    `db:"error"`
-	DeletedAt      *time.Time `db:"deletedAt"`
-	CreatedAt      time.Time  `db:"createdAt"`
-	UpdatedAt      time.Time  `db:"updatedAt"`
+	ID             string     `db:"id" json:"id"`
+	State          State      `db:"state" json:"state"`
+	PublishDate    time.Time  `db:"publishDate" json:"publishDate"`
+	OrganizationID string     `db:"organizationId" json:"organizationId"`
+	IntegrationID  string     `db:"integrationId" json:"integrationId"`
+	Content        string     `db:"content" json:"content"`
+	Delay          int        `db:"delay" json:"delay"`
+	Group          string     `db:"group" json:"group"`
+	Title          *string    `db:"title" json:"title"`
+	Description    *string    `db:"description" json:"description"`
+	ParentPostID   *string    `db:"parentPostId" json:"parentPostId"`
+	ReleaseID      *string    `db:"releaseId" json:"releaseId"`
+	ReleaseURL     *string    `db:"releaseURL" json:"releaseURL"`
+	Settings       *string    `db:"settings" json:"settings"`
+	Image          *string    `db:"image" json:"image"`
+	Error          *string    `db:"error" json:"error"`
+	DeletedAt      *time.Time `db:"deletedAt" json:"deletedAt"`
+	CreatedAt      time.Time  `db:"createdAt" json:"createdAt"`
+	UpdatedAt      time.Time  `db:"updatedAt" json:"updatedAt"`
 }
 
 // Media matches the Prisma Media model.
 type Media struct {
-	ID             string     `db:"id"`
-	Name           string     `db:"name"`
-	OriginalName   *string    `db:"originalName"`
-	Path           string     `db:"path"`
-	OrganizationID string     `db:"organizationId"`
-	FileSize       int        `db:"fileSize"`
-	Type           string     `db:"type"`
-	Thumbnail      *string    `db:"thumbnail"`
-	DeletedAt      *time.Time `db:"deletedAt"`
-	CreatedAt      time.Time  `db:"createdAt"`
-	UpdatedAt      time.Time  `db:"updatedAt"`
+	ID             string     `db:"id" json:"id"`
+	Name           string     `db:"name" json:"name"`
+	OriginalName   *string    `db:"originalName" json:"originalName"`
+	Path           string     `db:"path" json:"path"`
+	OrganizationID string     `db:"organizationId" json:"organizationId"`
+	FileSize       int        `db:"fileSize" json:"fileSize"`
+	Type           string     `db:"type" json:"type"`
+	Thumbnail      *string    `db:"thumbnail" json:"thumbnail"`
+	DeletedAt      *time.Time `db:"deletedAt" json:"deletedAt"`
+	CreatedAt      time.Time  `db:"createdAt" json:"createdAt"`
+	UpdatedAt      time.Time  `db:"updatedAt" json:"updatedAt"`
 }
