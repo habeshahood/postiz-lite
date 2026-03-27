@@ -67,9 +67,47 @@ func RegisterInternal(r chi.Router, store *db.Store) {
 	r.Get("/signatures/", handleSignatures())
 	r.Get("/signatures/default", handleDefaultSignature())
 
-	// Copilot (AI assistant — stub)
+	// Copilot / AI agent (stubs)
 	r.Post("/copilot/chat", handleCopilotStub())
 	r.Get("/copilot/credits", handleCopilotCredits())
+	r.Get("/copilot/list", handleEmptyArray())
+	r.Get("/copilot/agent", handleEmptyArray())
+	r.Post("/copilot/agent", handleEmptyArray())
+
+	// Third-party integrations
+	r.Get("/third-party", handleEmptyArray())
+	r.Get("/third-party/", handleEmptyArray())
+
+	// Media library
+	r.Get("/media", handleEmptyArray())
+	r.Get("/media/", handleEmptyArray())
+	r.Get("/media/video-options", handleEmptyArray())
+	r.Post("/media/upload-simple", handleUpload(store))
+	r.Post("/media/upload-server", handleUpload(store))
+
+	// Plugs (automation plugins)
+	r.Get("/plugs", handleEmptyArray())
+	r.Get("/plugs/", handleEmptyArray())
+	r.Get("/integrations/plug/list", handleEmptyArray())
+
+	// Autopost
+	r.Get("/autopost", handleEmptyArray())
+	r.Get("/autopost/", handleEmptyArray())
+
+	// Customers
+	r.Get("/customers", handleEmptyArray())
+	r.Get("/customers/", handleEmptyArray())
+
+	// Webhooks
+	r.Get("/webhooks", handleEmptyArray())
+	r.Get("/webhooks/", handleEmptyArray())
+
+	// Approved apps (OAuth)
+	r.Get("/approved-apps", handleEmptyArray())
+
+	// User extras
+	r.Get("/user/email-notifications", handleEmptyObject())
+	r.Post("/user/email-notifications", handleEmptyObject())
 }
 
 // ---- User handlers ----
@@ -588,5 +626,19 @@ func handleCopilotStub() http.HandlerFunc {
 func handleCopilotCredits() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"credits": 0})
+	}
+}
+
+// handleEmptyArray returns [] — used as a stub for list endpoints.
+func handleEmptyArray() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, []any{})
+	}
+}
+
+// handleEmptyObject returns {} — used as a stub for detail endpoints.
+func handleEmptyObject() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{})
 	}
 }
