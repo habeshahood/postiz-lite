@@ -1,0 +1,33 @@
+{
+	admin off
+}
+
+:5000 {
+	handle /s/api/* {
+		uri strip_prefix /s/api
+		reverse_proxy 127.0.0.1:3000
+	}
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy 127.0.0.1:3000
+	}
+	handle /uploads/* {
+		reverse_proxy 127.0.0.1:3000
+	}
+	handle /admin/* {
+		reverse_proxy 127.0.0.1:3000
+	}
+	handle /admin {
+		reverse_proxy 127.0.0.1:3000
+	}
+	handle /health {
+		reverse_proxy 127.0.0.1:3000
+	}
+	handle /s/* {
+		reverse_proxy 127.0.0.1:4200
+	}
+	handle {
+		rewrite * /s{uri}
+		reverse_proxy 127.0.0.1:4200
+	}
+}
