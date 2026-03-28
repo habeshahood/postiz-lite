@@ -65,7 +65,38 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
     refreshWhenHidden: false,
   });
 
+  const isEmbedded = searchParams.get('embedded') === 'true';
+
   if (!user) return null;
+
+  // Embedded mode: strip sidebar, top bar, padding — just the content area
+  if (isEmbedded) {
+    return (
+      <ContextWrapper user={user}>
+        <CopilotKit
+          credentials="include"
+          runtimeUrl={backendUrl + '/copilot/chat'}
+          showDevConsole={false}
+        >
+          <MantineWrapper>
+            <ToolTip />
+            <Toaster />
+            <CheckPayment check={searchParams.get('check') || ''} mutate={mutate}>
+              <ShowMediaBoxModal />
+              <ShowLinkedinCompany />
+              <MediaSettingsLayout />
+              <ShowPostSelector />
+              <PreConditionComponent />
+              <ContinueProvider />
+              <div className={clsx('flex flex-col min-h-screen text-newTextColor', jakartaSans.className)}>
+                <div className="flex flex-1">{children}</div>
+              </div>
+            </CheckPayment>
+          </MantineWrapper>
+        </CopilotKit>
+      </ContextWrapper>
+    );
+  }
 
   return (
     <ContextWrapper user={user}>

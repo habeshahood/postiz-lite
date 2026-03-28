@@ -10,12 +10,15 @@ export default function AuthBridgePage() {
   useEffect(() => {
     const token = searchParams.get('token')
     const redirect = searchParams.get('redirect') || '/launches'
+    const embedded = searchParams.get('embedded')
 
     if (token) {
       // Set cookie (same-origin) + localStorage (iframe fallback for third-party cookie blocking)
       document.cookie = `auth=${token}; path=/; max-age=${60 * 60 * 24}; SameSite=None; Secure`
       try { localStorage.setItem('auth', token) } catch {}
-      router.replace(redirect)
+      // Carry embedded flag through navigation
+      const suffix = embedded ? (redirect.includes('?') ? '&embedded=true' : '?embedded=true') : ''
+      router.replace(redirect + suffix)
     } else {
       router.replace('/auth/login')
     }
