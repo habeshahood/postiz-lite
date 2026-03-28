@@ -913,7 +913,7 @@ func handleGetSets() http.HandlerFunc {
 func handleCopilotChat() http.HandlerFunc {
 	ollamaURL := os.Getenv("OLLAMA_URL")
 	if ollamaURL == "" {
-		ollamaURL = "http://127.0.0.1:11434"
+		ollamaURL = "http://host.docker.internal:11434"
 	}
 	model := os.Getenv("OLLAMA_MODEL")
 	if model == "" {

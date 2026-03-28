@@ -32,6 +32,8 @@ services:
       - ./go-backend/tenants.json:/config/tenants.json:ro
       - ferroquant-uploads:/uploads/ferroquant
       - hood-uploads:/uploads/1hood
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - postiz-shared
     mem_limit: 512m
