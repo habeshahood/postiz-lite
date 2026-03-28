@@ -22,10 +22,11 @@ export const customFetch = (
     const authNonSecuredCookie =
       typeof document === 'undefined'
         ? null
-        : document.cookie
+        : (document.cookie
             .split(';')
             .find((p) => p.includes('auth='))
-            ?.split('=')[1];
+            ?.split('=')[1]
+          || (typeof localStorage !== 'undefined' ? localStorage.getItem('auth') : null));
 
     const authNonSecuredOrg =
       typeof document === 'undefined'

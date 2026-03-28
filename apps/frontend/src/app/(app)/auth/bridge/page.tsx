@@ -12,8 +12,9 @@ export default function AuthBridgePage() {
     const redirect = searchParams.get('redirect') || '/launches'
 
     if (token) {
-      // Set the auth cookie that Postiz frontend reads
+      // Set cookie (same-origin) + localStorage (iframe fallback for third-party cookie blocking)
       document.cookie = `auth=${token}; path=/; max-age=${60 * 60 * 24}; SameSite=None; Secure`
+      try { localStorage.setItem('auth', token) } catch {}
       router.replace(redirect)
     } else {
       router.replace('/auth/login')
