@@ -5,6 +5,7 @@ dist
 tmp
 /out-tsc
 .env
+go-backend/tenants-native.json
 # dependencies
 node_modules
 
