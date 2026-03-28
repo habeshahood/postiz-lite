@@ -10,10 +10,12 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/habeshahood/postiz-lite/internal/db"
 	"github.com/habeshahood/postiz-lite/internal/scheduler"
 	"github.com/habeshahood/postiz-lite/internal/tenant"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // RegisterAdmin mounts admin-only tenant management routes.
@@ -32,6 +34,9 @@ func RegisterAdmin(r chi.Router, tm *tenant.TenantManager, tenantsFile string, b
 		r.Get("/admin/tenants", handleListTenants(tm))
 		r.Post("/admin/tenants", handleCreateTenant(tm, tenantsFile, buildRouter))
 		r.Delete("/admin/tenants/{id}", handleDeleteTenant(tm, tenantsFile))
+		r.Get("/admin/tenants/{tenantId}/members", handleListMembers(tm))
+		r.Post("/admin/tenants/{tenantId}/members", handleCreateMember(tm))
+		r.Delete("/admin/tenants/{tenantId}/members/{userId}", handleDeleteMember(tm))
 	})
 }
 
@@ -192,6 +197,115 @@ func handleDeleteTenant(tm *tenant.TenantManager, tenantsFile string) http.Handl
 		}
 		slog.Info("tenant deleted via admin API", "id", id)
 		writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
+	}
+}
+
+func handleListMembers(tm *tenant.TenantManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID := chi.URLParam(r, "tenantId")
+		lt := tm.GetTenant(tenantID)
+		if lt == nil {
+			http.Error(w, `{"msg":"Tenant not found"}`, http.StatusNotFound)
+			return
+		}
+
+		store := db.NewStore(lt.Pool)
+
+		var orgID string
+		store.QueryRow(r.Context(), `SELECT id FROM "Organization" LIMIT 1`).Scan(&orgID)
+		if orgID == "" {
+			writeJSON(w, http.StatusOK, []map[string]any{})
+			return
+		}
+
+		users, err := store.ListUsers(r.Context(), orgID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"msg":"Failed to list users: %s"}`, err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, users)
+	}
+}
+
+func handleCreateMember(tm *tenant.TenantManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID := chi.URLParam(r, "tenantId")
+		lt := tm.GetTenant(tenantID)
+		if lt == nil {
+			http.Error(w, `{"msg":"Tenant not found"}`, http.StatusNotFound)
+			return
+		}
+
+		var body struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+			Name     string `json:"name"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.Email == "" || body.Password == "" {
+			http.Error(w, `{"msg":"email and password required"}`, http.StatusBadRequest)
+			return
+		}
+
+		store := db.NewStore(lt.Pool)
+
+		var orgID string
+		store.QueryRow(r.Context(), `SELECT id FROM "Organization" LIMIT 1`).Scan(&orgID)
+		if orgID == "" {
+			http.Error(w, `{"msg":"No organization in tenant"}`, http.StatusBadRequest)
+			return
+		}
+
+		hash, _ := bcrypt.GenerateFromPassword([]byte(body.Password), 10)
+		hashStr := string(hash)
+
+		user, err := store.CreateUser(r.Context(), body.Email, &hashStr, db.ProviderLocal, 0)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"msg":"Failed to create user: %s"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		if body.Name != "" {
+			store.Exec(r.Context(), `UPDATE "User" SET name = $1 WHERE id = $2`, body.Name, user.ID)
+		}
+
+		uoID := uuid.New().String()
+		store.Exec(r.Context(), `
+			INSERT INTO "UserOrganization" (id, "userId", "organizationId", disabled, role, "createdAt", "updatedAt")
+			VALUES ($1, $2, $3, false, 'USER', NOW(), NOW())`, uoID, user.ID, orgID)
+
+		writeJSON(w, http.StatusOK, map[string]any{"id": user.ID, "email": user.Email})
+	}
+}
+
+func handleDeleteMember(tm *tenant.TenantManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tenantID := chi.URLParam(r, "tenantId")
+		userID := chi.URLParam(r, "userId")
+		lt := tm.GetTenant(tenantID)
+		if lt == nil {
+			http.Error(w, `{"msg":"Tenant not found"}`, http.StatusNotFound)
+			return
+		}
+
+		store := db.NewStore(lt.Pool)
+
+		var orgID string
+		store.QueryRow(r.Context(), `SELECT id FROM "Organization" LIMIT 1`).Scan(&orgID)
+		if orgID == "" {
+			http.Error(w, `{"msg":"No organization in tenant"}`, http.StatusBadRequest)
+			return
+		}
+
+		_, err := store.Exec(r.Context(), `
+			UPDATE "UserOrganization" SET disabled = true, "updatedAt" = NOW()
+			WHERE "userId" = $1 AND "organizationId" = $2`, userID, orgID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"msg":"Failed to remove member: %s"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{"id": userID, "removed": true})
 	}
 }
 

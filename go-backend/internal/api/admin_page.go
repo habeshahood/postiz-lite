@@ -65,6 +65,22 @@ h1{font-size:2.4rem;letter-spacing:-0.5px;margin-bottom:0.3rem}
 
 <div class="section">Sites</div>
 <div id="list"><div class="empty">Connect with admin key</div></div>
+
+<div style="margin-top:2.5rem">
+<div class="section">Members</div>
+<div style="margin-bottom:1rem">
+  <select id="tenantSel" onchange="loadMembers()" style="padding:0.6rem 1rem;background:#18181b;border:1px solid #27272a;border-radius:10px;color:#e4e4e7;font-size:0.9rem;width:100%">
+    <option value="">— select a site —</option>
+  </select>
+</div>
+<div class="add-row" style="margin-bottom:1rem">
+  <input type="text" id="mEmail" placeholder="email" autocomplete="off" />
+  <input type="password" id="mPass" placeholder="password" style="flex:1;padding:0.85rem 1rem;background:transparent;border:none;border-left:1px solid #27272a;color:#e4e4e7;font-size:1.05rem" />
+  <input type="text" id="mName" placeholder="name (optional)" style="flex:1;padding:0.85rem 1rem;background:transparent;border:none;border-left:1px solid #27272a;color:#e4e4e7;font-size:1.05rem" />
+  <button id="addMemberBtn" onclick="addMember()">Add</button>
+</div>
+<div id="memberList"><div class="empty">Select a site to manage members</div></div>
+</div>
 </div>
 
 <script>
@@ -74,6 +90,7 @@ const hdr=()=>({Authorization:'Bearer '+key(),'Content-Type':'application/json'}
 
 $('key').value=localStorage.getItem('pk')||'';
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();add()}});
+$('mEmail').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addMember()}});
 
 function msg(t,ok){const m=$('msg');m.textContent=t;m.className='msg '+(ok?'ok':'err');setTimeout(()=>{m.style.display='none'},4000)}
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
@@ -88,9 +105,54 @@ async function loadTenants(){
     $('list').innerHTML=d.map(t=>{
       const host=(t.hosts||[])[0]||'';
       const url=t.frontend_url||('https://'+host);
-      return '<div class="tenant"><div><div class="t-name">'+esc(t.id)+'</div><div class="t-url"><a href="'+esc(url)+'" target="_blank">'+esc(host)+'</a></div></div><button class="del" onclick="del(\''+esc(t.id)+'\')">&times;</button></div>';
+      return '<div class="tenant"><div><div class="t-name" style="cursor:pointer" onclick="selectTenant(\''+esc(t.id)+'\')">'+esc(t.id)+'</div><div class="t-url"><a href="'+esc(url)+'" target="_blank">'+esc(host)+'</a></div></div><button class="del" onclick="del(\''+esc(t.id)+'\')">&times;</button></div>';
     }).join('');
+    // Repopulate tenant selector
+    const sel=$('tenantSel');
+    const prev=sel.value;
+    sel.innerHTML='<option value="">— select a site —</option>'+d.map(t=>'<option value="'+esc(t.id)+'">'+esc(t.id)+'</option>').join('');
+    if(prev)sel.value=prev;
   }catch(e){$('list').innerHTML='<div class="empty">Error</div>'}
+}
+
+function selectTenant(id){
+  $('tenantSel').value=id;
+  loadMembers();
+}
+
+async function loadMembers(){
+  const tid=$('tenantSel').value;
+  if(!tid){$('memberList').innerHTML='<div class="empty">Select a site to manage members</div>';return}
+  try{
+    const r=await fetch('/api/admin/tenants/'+tid+'/members',{headers:hdr()});
+    if(!r.ok){$('memberList').innerHTML='<div class="empty">Failed to load</div>';return}
+    const d=await r.json();
+    if(!d.length){$('memberList').innerHTML='<div class="empty">No members yet</div>';return}
+    $('memberList').innerHTML=d.map(u=>'<div class="tenant"><div><div class="t-name">'+esc(u.email)+'</div><div class="t-url">'+esc(u.role)+(u.name?(' — '+esc(u.name)):'')+'</div></div><button class="del" onclick="delMember(\''+esc(tid)+'\',\''+esc(u.id)+'\')">&times;</button></div>').join('');
+  }catch(e){$('memberList').innerHTML='<div class="empty">Error</div>'}
+}
+
+async function addMember(){
+  const tid=$('tenantSel').value;
+  if(!tid){msg('Select a site first',false);return}
+  const email=$('mEmail').value.trim();
+  const pass=$('mPass').value;
+  const name=$('mName').value.trim();
+  if(!email||!pass){msg('Email and password required',false);return}
+  const btn=$('addMemberBtn');btn.disabled=true;btn.textContent='...';
+  try{
+    const r=await fetch('/api/admin/tenants/'+tid+'/members',{method:'POST',headers:hdr(),body:JSON.stringify({email,password:pass,name})});
+    const d=await r.json();
+    if(r.ok){msg(email+' added',true);$('mEmail').value='';$('mPass').value='';$('mName').value='';loadMembers()}
+    else msg(d.msg||'Failed',false)
+  }catch(e){msg(e.message,false)}
+  btn.disabled=false;btn.textContent='Add';
+}
+
+async function delMember(tid,uid){
+  if(!confirm('Remove this member?'))return;
+  await fetch('/api/admin/tenants/'+tid+'/members/'+uid,{method:'DELETE',headers:hdr()});
+  loadMembers();
 }
 
 async function add(){

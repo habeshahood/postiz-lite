@@ -126,6 +126,18 @@ func (tm *TenantManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, `{"msg":"No tenants configured"}`, http.StatusNotFound)
 }
 
+// GetTenant returns a tenant by ID, or nil if not found.
+func (tm *TenantManager) GetTenant(id string) *LiveTenant {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+	for _, lt := range tm.tenants {
+		if lt.ID == id {
+			return lt
+		}
+	}
+	return nil
+}
+
 // Tenants returns the live tenant slice (read-only snapshot for shutdown).
 func (tm *TenantManager) Tenants() []*LiveTenant {
 	tm.mu.RLock()

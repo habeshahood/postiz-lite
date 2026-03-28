@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -159,6 +160,40 @@ func (s *Store) GetUserOrganizations(ctx context.Context, userID string) ([]User
 		out = append(out, uo)
 	}
 	return out, rows.Err()
+}
+
+// ListUsers returns all users in the organization.
+func (s *Store) ListUsers(ctx context.Context, orgID string) ([]map[string]any, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT u.id, u.email, u.name, u."lastName", u.activated, uo.role, u."createdAt"
+		FROM "User" u
+		JOIN "UserOrganization" uo ON uo."userId" = u.id
+		WHERE uo."organizationId" = $1 AND uo.disabled = false
+		ORDER BY u."createdAt" DESC`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []map[string]any
+	for rows.Next() {
+		var id, email string
+		var name, lastName *string
+		var activated bool
+		var role string
+		var createdAt time.Time
+		if err := rows.Scan(&id, &email, &name, &lastName, &activated, &role, &createdAt); err != nil {
+			continue
+		}
+		users = append(users, map[string]any{
+			"id": id, "email": email, "name": name, "lastName": lastName,
+			"activated": activated, "role": role, "createdAt": createdAt,
+		})
+	}
+	if users == nil {
+		users = []map[string]any{}
+	}
+	return users, nil
 }
 
 // GetPostsByDateRange returns posts within a date range for the calendar view.
