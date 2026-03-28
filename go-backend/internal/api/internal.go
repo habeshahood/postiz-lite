@@ -908,12 +908,16 @@ func handleGetSets() http.HandlerFunc {
 	}
 }
 
-// handleCopilotChat proxies CopilotKit requests to the CopilotKit Node.js runtime
-// which connects to local Ollama. The runtime handles CopilotKit's wire protocol.
+// handleCopilotChat proxies CopilotKit requests to local Ollama.
+// Ollama's OpenAI-compatible endpoint handles the chat completions.
 func handleCopilotChat() http.HandlerFunc {
-	copilotURL := os.Getenv("COPILOT_RUNTIME_URL")
-	if copilotURL == "" {
-		copilotURL = "http://127.0.0.1:3100"
+	ollamaURL := os.Getenv("OLLAMA_URL")
+	if ollamaURL == "" {
+		ollamaURL = "http://127.0.0.1:11434"
+	}
+	model := os.Getenv("OLLAMA_MODEL")
+	if model == "" {
+		model = "qwen3.5:9b"
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -923,9 +927,37 @@ func handleCopilotChat() http.HandlerFunc {
 			return
 		}
 
-		// Forward to CopilotKit Node.js runtime
+		// Parse and inject system prompt + force our model
+		var req map[string]any
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, `{"msg":"Invalid JSON"}`, http.StatusBadRequest)
+			return
+		}
+		req["model"] = model
+		req["stream"] = true
+
+		// Prepend social media system prompt
+		if msgs, ok := req["messages"].([]any); ok {
+			hasSystem := false
+			for _, m := range msgs {
+				if msg, ok := m.(map[string]any); ok && msg["role"] == "system" {
+					hasSystem = true
+					break
+				}
+			}
+			if !hasSystem {
+				sys := map[string]any{
+					"role":    "system",
+					"content": "You are a social media content assistant for 1hood. Help users write engaging posts for X (Twitter), TikTok, YouTube, Facebook, and Instagram. Be creative, concise, and match the platform's style. Use hashtags where appropriate. Keep tweets under 280 characters.",
+				}
+				req["messages"] = append([]any{sys}, msgs...)
+			}
+		}
+
+		modified, _ := json.Marshal(req)
+
 		proxyReq, _ := http.NewRequestWithContext(r.Context(), "POST",
-			copilotURL+"/copilot/chat", bytes.NewReader(body))
+			ollamaURL+"/v1/chat/completions", bytes.NewReader(modified))
 		proxyReq.Header.Set("Content-Type", r.Header.Get("Content-Type"))
 
 		resp, err := http.DefaultClient.Do(proxyReq)
