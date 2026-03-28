@@ -1,9 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -25,7 +29,7 @@ func RegisterPublic(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Post("/integrations/social-connect/{integration}", handleSocialConnectReal(store, rdb))
 
 	// Copilot / AI agent — public because CopilotKit widget doesn't send auth cookies
-	r.Post("/copilot/chat", handleCopilotStub())
+	r.Post("/copilot/chat", handleCopilotChat())
 	r.Get("/copilot/chat", handleEmptyObject())
 	r.Get("/copilot/credits", handleCopilotCredits())
 }
@@ -904,15 +908,94 @@ func handleGetSets() http.HandlerFunc {
 	}
 }
 
-func handleCopilotStub() http.HandlerFunc {
+// handleCopilotChat proxies CopilotKit requests to local Ollama.
+// CopilotKit sends OpenAI-compatible chat completions; Ollama responds in the same format.
+func handleCopilotChat() http.HandlerFunc {
+	ollamaURL := os.Getenv("OLLAMA_URL")
+	if ollamaURL == "" {
+		ollamaURL = "http://127.0.0.1:11434"
+	}
+	model := os.Getenv("OLLAMA_MODEL")
+	if model == "" {
+		model = "qwen3.5:9b"
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, `{"msg":"Copilot not available"}`, http.StatusNotFound)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, `{"msg":"Bad request"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Parse and inject system prompt + force our model
+		var req map[string]any
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, `{"msg":"Invalid JSON"}`, http.StatusBadRequest)
+			return
+		}
+
+		req["model"] = model
+		req["stream"] = true
+
+		// Prepend social media system prompt if no system message exists
+		if msgs, ok := req["messages"].([]any); ok {
+			hasSystem := false
+			for _, m := range msgs {
+				if msg, ok := m.(map[string]any); ok && msg["role"] == "system" {
+					hasSystem = true
+					break
+				}
+			}
+			if !hasSystem {
+				sys := map[string]any{
+					"role":    "system",
+					"content": "You are a social media content assistant for 1hood. Help users write engaging posts for X (Twitter), TikTok, YouTube, Facebook, and Instagram. Be creative, concise, and match the platform's style. Use hashtags where appropriate. Keep tweets under 280 characters.",
+				}
+				req["messages"] = append([]any{sys}, msgs...)
+			}
+		}
+
+		modified, _ := json.Marshal(req)
+
+		// Forward to Ollama's OpenAI-compatible endpoint
+		ollamaReq, _ := http.NewRequestWithContext(r.Context(), "POST",
+			ollamaURL+"/v1/chat/completions", bytes.NewReader(modified))
+		ollamaReq.Header.Set("Content-Type", "application/json")
+
+		resp, err := http.DefaultClient.Do(ollamaReq)
+		if err != nil {
+			slog.Error("copilot: ollama request failed", "error", err)
+			http.Error(w, `{"msg":"AI service unavailable"}`, http.StatusServiceUnavailable)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Stream the SSE response back to the client
+		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(resp.StatusCode)
+
+		flusher, _ := w.(http.Flusher)
+		buf := make([]byte, 4096)
+		for {
+			n, err := resp.Body.Read(buf)
+			if n > 0 {
+				w.Write(buf[:n])
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
 	}
 }
 
 func handleCopilotCredits() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"credits": 0})
+		writeJSON(w, http.StatusOK, map[string]any{"credits": 999999})
 	}
 }
 
