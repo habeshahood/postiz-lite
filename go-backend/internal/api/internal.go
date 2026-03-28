@@ -908,16 +908,12 @@ func handleGetSets() http.HandlerFunc {
 	}
 }
 
-// handleCopilotChat proxies CopilotKit requests to local Ollama.
-// CopilotKit sends OpenAI-compatible chat completions; Ollama responds in the same format.
+// handleCopilotChat proxies CopilotKit requests to the CopilotKit Node.js runtime
+// which connects to local Ollama. The runtime handles CopilotKit's wire protocol.
 func handleCopilotChat() http.HandlerFunc {
-	ollamaURL := os.Getenv("OLLAMA_URL")
-	if ollamaURL == "" {
-		ollamaURL = "http://host.docker.internal:11434"
-	}
-	model := os.Getenv("OLLAMA_MODEL")
-	if model == "" {
-		model = "qwen3.5:9b"
+	copilotURL := os.Getenv("COPILOT_RUNTIME_URL")
+	if copilotURL == "" {
+		copilotURL = "http://127.0.0.1:3100"
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -927,53 +923,25 @@ func handleCopilotChat() http.HandlerFunc {
 			return
 		}
 
-		// Parse and inject system prompt + force our model
-		var req map[string]any
-		if err := json.Unmarshal(body, &req); err != nil {
-			http.Error(w, `{"msg":"Invalid JSON"}`, http.StatusBadRequest)
-			return
-		}
+		// Forward to CopilotKit Node.js runtime
+		proxyReq, _ := http.NewRequestWithContext(r.Context(), "POST",
+			copilotURL+"/copilot/chat", bytes.NewReader(body))
+		proxyReq.Header.Set("Content-Type", r.Header.Get("Content-Type"))
 
-		req["model"] = model
-		req["stream"] = true
-
-		// Prepend social media system prompt if no system message exists
-		if msgs, ok := req["messages"].([]any); ok {
-			hasSystem := false
-			for _, m := range msgs {
-				if msg, ok := m.(map[string]any); ok && msg["role"] == "system" {
-					hasSystem = true
-					break
-				}
-			}
-			if !hasSystem {
-				sys := map[string]any{
-					"role":    "system",
-					"content": "You are a social media content assistant for 1hood. Help users write engaging posts for X (Twitter), TikTok, YouTube, Facebook, and Instagram. Be creative, concise, and match the platform's style. Use hashtags where appropriate. Keep tweets under 280 characters.",
-				}
-				req["messages"] = append([]any{sys}, msgs...)
-			}
-		}
-
-		modified, _ := json.Marshal(req)
-
-		// Forward to Ollama's OpenAI-compatible endpoint
-		ollamaReq, _ := http.NewRequestWithContext(r.Context(), "POST",
-			ollamaURL+"/v1/chat/completions", bytes.NewReader(modified))
-		ollamaReq.Header.Set("Content-Type", "application/json")
-
-		resp, err := http.DefaultClient.Do(ollamaReq)
+		resp, err := http.DefaultClient.Do(proxyReq)
 		if err != nil {
-			slog.Error("copilot: ollama request failed", "error", err)
+			slog.Error("copilot: runtime request failed", "error", err)
 			http.Error(w, `{"msg":"AI service unavailable"}`, http.StatusServiceUnavailable)
 			return
 		}
 		defer resp.Body.Close()
 
-		// Stream the SSE response back to the client
-		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+		// Stream response back
+		for k, v := range resp.Header {
+			for _, vv := range v {
+				w.Header().Add(k, vv)
+			}
+		}
 		w.WriteHeader(resp.StatusCode)
 
 		flusher, _ := w.(http.Flusher)
