@@ -81,6 +81,10 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 						picture = pagePic
 					}
 				}
+				// Use a distinct internalId for Instagram vs Facebook (same page, different provider)
+				if integration == "instagram" {
+					userID = "ig_" + userID
+				}
 			}
 		case "tiktok":
 			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeTikTokToken(body.Code, body.CodeVerifier, socialKeys, frontendURL)
