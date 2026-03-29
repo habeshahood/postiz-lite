@@ -23,6 +23,7 @@ countries.registerLocale(countriesEn);
 
 const getCountryCodeForFlag = (languageCode: string) => {
   // For multi-region languages, here are some common defaults
+  if (languageCode === 'am') return 'ET';
   if (languageCode === 'en') return 'GB';
   if (languageCode === 'es') return 'ES';
   if (languageCode === 'ar') return 'SA';
