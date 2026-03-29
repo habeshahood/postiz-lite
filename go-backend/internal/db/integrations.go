@@ -170,10 +170,10 @@ func (s *Store) UpdateIntegrationTokens(ctx context.Context, id, token string, r
 
 // DeleteIntegration soft-deletes an integration by setting deletedAt.
 func (s *Store) DeleteIntegration(ctx context.Context, id, orgID string) error {
+	// Hard delete — soft delete causes duplicate key conflicts when re-adding the same channel
 	const q = `
-		UPDATE "Integration"
-		SET "deletedAt" = NOW(), "updatedAt" = NOW()
-		WHERE id = $1 AND "organizationId" = $2 AND "deletedAt" IS NULL`
+		DELETE FROM "Integration"
+		WHERE id = $1 AND "organizationId" = $2`
 
 	tag, err := s.pool.Exec(ctx, q, id, orgID)
 	if err != nil {
