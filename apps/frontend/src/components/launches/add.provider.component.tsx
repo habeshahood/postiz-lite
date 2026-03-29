@@ -467,7 +467,13 @@ export const AddProviderComponent: FC<{
             return;
           }
 
-          window.location.href = url;
+          // In embedded mode (iframe), open OAuth in a popup — OAuth providers block iframes
+          const isEmbedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embedded') === 'true';
+          if (isEmbedded) {
+            window.open(url, '_blank', 'width=600,height=700,scrollbars=yes');
+          } else {
+            window.location.href = url;
+          }
         };
         if (isWeb3) {
           openWeb3();
