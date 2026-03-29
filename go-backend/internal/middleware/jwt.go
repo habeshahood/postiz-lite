@@ -53,6 +53,12 @@ func JWTAuth(secret string, store *db.Store) func(http.Handler) http.Handler {
 			if showOrg := r.Header.Get("showorg"); showOrg != "" {
 				activeOrgID = showOrg
 			}
+			// If orgId is empty (e.g. auto-provisioned user), look up from UserOrganization
+			if activeOrgID == "" {
+				if firstOrg, err := store.GetFirstOrgByUserID(ctx, userID); err == nil {
+					activeOrgID = firstOrg
+				}
+			}
 			if activeOrgID != "" {
 				org, err := store.GetOrgByID(ctx, activeOrgID)
 				if err == nil {

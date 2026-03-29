@@ -34,6 +34,20 @@ func (s *Store) GetOrgByAPIKey(ctx context.Context, apiKey string) (*Organizatio
 	return org, nil
 }
 
+// GetFirstOrgByUserID returns the first non-disabled organization ID for a user.
+func (s *Store) GetFirstOrgByUserID(ctx context.Context, userID string) (string, error) {
+	const q = `
+		SELECT "organizationId" FROM "UserOrganization"
+		WHERE "userId" = $1 AND disabled = false
+		LIMIT 1`
+	var orgID string
+	err := s.pool.QueryRow(ctx, q, userID).Scan(&orgID)
+	if err != nil {
+		return "", fmt.Errorf("GetFirstOrgByUserID: %w", err)
+	}
+	return orgID, nil
+}
+
 // GetOrgByID returns the Organization with the given id.
 func (s *Store) GetOrgByID(ctx context.Context, id string) (*Organization, error) {
 	const q = `
