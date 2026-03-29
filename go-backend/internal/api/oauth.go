@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -11,7 +13,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/dghubble/oauth1"
 	"github.com/go-chi/chi/v5"
 	"github.com/habeshahood/postiz-lite/internal/db"
 	"github.com/habeshahood/postiz-lite/internal/middleware"
@@ -112,42 +113,39 @@ func handleSocialOAuthURLReal(store *db.Store, rdb *redis.Client) http.HandlerFu
 	}
 }
 
-// ── X / Twitter (OAuth 1.0a) ─────────────────────────────────
+// ── X / Twitter (OAuth 2.0 PKCE) ────────────────────────────
 
 func generateXAuthURL(frontendURL string, keys *tenant.SocialKeys) (authURL, codeVerifier, state string, err error) {
-	var apiKey, apiSecret string
+	var clientID string
 	if keys != nil {
-		apiKey = keys.XAPIKey
-		apiSecret = keys.XAPISecret
+		clientID = keys.XAPIKey
 	}
-	if apiKey == "" || apiSecret == "" {
-		return "", "", "", fmt.Errorf("X_API_KEY and X_API_SECRET must be set")
-	}
-
-	callbackURL := frontendURL + "/integrations/social/x"
-
-	config := oauth1.Config{
-		ConsumerKey:    apiKey,
-		ConsumerSecret: apiSecret,
-		CallbackURL:    callbackURL,
-		Endpoint: oauth1.Endpoint{
-			RequestTokenURL: "https://api.twitter.com/oauth/request_token",
-			AuthorizeURL:    "https://api.twitter.com/oauth/authenticate",
-			AccessTokenURL:  "https://api.twitter.com/oauth/access_token",
-		},
+	if clientID == "" {
+		return "", "", "", fmt.Errorf("X_API_KEY (OAuth 2.0 Client ID) must be set")
 	}
 
-	requestToken, requestSecret, err := config.RequestToken()
-	if err != nil {
-		return "", "", "", fmt.Errorf("X request token: %w", err)
-	}
+	state = randomState()
+	codeVerifier = randomState() + randomState() // PKCE needs 43-128 chars
 
-	authorizationURL, err := config.AuthorizationURL(requestToken)
-	if err != nil {
-		return "", "", "", fmt.Errorf("X auth URL: %w", err)
-	}
+	// S256 code challenge
+	h := sha256.Sum256([]byte(codeVerifier))
+	codeChallenge := base64.RawURLEncoding.EncodeToString(h[:])
 
-	return authorizationURL.String(), requestToken + ":" + requestSecret, requestToken, nil
+	redirectURI := frontendURL + "/integrations/social/x"
+	scopes := "tweet.read tweet.write users.read offline.access"
+
+	u, _ := url.Parse("https://twitter.com/i/oauth2/authorize")
+	q := u.Query()
+	q.Set("response_type", "code")
+	q.Set("client_id", clientID)
+	q.Set("redirect_uri", redirectURI)
+	q.Set("scope", scopes)
+	q.Set("state", state)
+	q.Set("code_challenge", codeChallenge)
+	q.Set("code_challenge_method", "S256")
+	u.RawQuery = q.Encode()
+
+	return u.String(), codeVerifier, state, nil
 }
 
 // ── TikTok (OAuth 2.0 PKCE) ─────────────────────────────────
