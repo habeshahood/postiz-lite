@@ -707,6 +707,19 @@ func handleInternalListIntegrations(store *db.Store) http.HandlerFunc {
 
 	catalog := map[string]any{
 		"social": []providerInfo{
+			{Name: "Instagram", Identifier: "instagram", Editor: "normal"},
+			{Name: "X", Identifier: "x", Editor: "normal"},
+			{Name: "Facebook Page", Identifier: "facebook", Editor: "normal"},
+			{Name: "YouTube", Identifier: "youtube", Editor: "normal"},
+			{Name: "Telegram", Identifier: "telegram", Editor: "normal"},
+			{Name: "TikTok", Identifier: "tiktok", Editor: "normal"},
+		},
+		"article": []any{},
+	}
+	_ = customField{}
+	// Original full catalog kept for reference — only 6 platforms enabled for 1hood
+	_ = map[string]any{
+		"social_full_unused": []providerInfo{
 			{Name: "X", Identifier: "x", Editor: "normal", ToolTip: "You will be logged in into your current account"},
 			{Name: "LinkedIn", Identifier: "linkedin", Editor: "normal"},
 			{Name: "LinkedIn Page", Identifier: "linkedin-page", Editor: "normal"},
@@ -741,7 +754,6 @@ func handleInternalListIntegrations(store *db.Store) http.HandlerFunc {
 			{Name: "WordPress", Identifier: "wordpress", Editor: "html"},
 			{Name: "Listmonk", Identifier: "listmonk", Editor: "html"},
 		},
-		"article": []any{},
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
