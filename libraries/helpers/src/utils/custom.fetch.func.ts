@@ -49,11 +49,6 @@ export const customFetch = (
             .find((p) => p.includes('impersonate='))
             ?.split('=')[1];
 
-    if (typeof window !== 'undefined' && url.includes('/user/self')) {
-      console.log('[POSTIZ-DEBUG] loggedAuth:', loggedAuth ? loggedAuth.substring(0, 20) + '...' : 'NULL');
-      console.log('[POSTIZ-DEBUG] cookieAuth:', authNonSecuredCookie ? String(authNonSecuredCookie).substring(0, 20) + '...' : 'NULL');
-      console.log('[POSTIZ-DEBUG] location:', window.location.href.substring(0, 80));
-    }
     const fetchRequest = await fetch(params.baseUrl + url, {
       ...(secured ? { credentials: 'include' } : {}),
       ...(newRequestObject || options),
