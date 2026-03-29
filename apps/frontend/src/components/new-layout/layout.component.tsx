@@ -69,31 +69,22 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
 
   if (!user) return null;
 
-  // Embedded mode: strip sidebar, top bar, padding — just the content area
+  // Embedded mode: strip sidebar, top bar, CopilotKit, padding — just the content area
   if (isEmbedded) {
     return (
       <ContextWrapper user={user}>
-        <CopilotKit
-          credentials="include"
-          runtimeUrl={backendUrl + '/copilot/chat'}
-          showDevConsole={false}
-        >
-          <MantineWrapper>
-            <ToolTip />
-            <Toaster />
-            <CheckPayment check={searchParams.get('check') || ''} mutate={mutate}>
-              <ShowMediaBoxModal />
-              <ShowLinkedinCompany />
-              <MediaSettingsLayout />
-              <ShowPostSelector />
-              <PreConditionComponent />
-              <ContinueProvider />
-              <div className={clsx('flex flex-col min-h-screen text-newTextColor', jakartaSans.className)}>
-                <div className="flex flex-1">{children}</div>
-              </div>
-            </CheckPayment>
-          </MantineWrapper>
-        </CopilotKit>
+        <MantineWrapper>
+          <ToolTip />
+          <Toaster />
+          <ShowMediaBoxModal />
+          <ShowLinkedinCompany />
+          <MediaSettingsLayout />
+          <ShowPostSelector />
+          <ContinueProvider />
+          <div className={clsx('flex flex-col min-h-screen text-newTextColor', jakartaSans.className)}>
+            <div className="flex flex-1">{children}</div>
+          </div>
+        </MantineWrapper>
       </ContextWrapper>
     );
   }
