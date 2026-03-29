@@ -39,7 +39,7 @@ const jakartaSans = Plus_Jakarta_Sans({
   subsets: ['latin'],
 });
 
-const EmbeddedThemeListener = () => {
+const EmbeddedThemeListener = (): null => {
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'theme-change' && (e.data.theme === 'dark' || e.data.theme === 'light')) {
