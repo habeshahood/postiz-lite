@@ -68,8 +68,20 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 		switch integration {
 		case "youtube":
 			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeYouTubeToken(body.Code, socialKeys, frontendURL)
-		case "facebook":
-			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeFacebookToken(body.Code, body.Refresh, socialKeys, frontendURL)
+		case "facebook", "instagram":
+			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeFacebookToken(body.Code, body.Refresh, socialKeys, frontendURL+"/integrations/social/"+integration)
+			if err == nil {
+				// Fetch the user's Pages and use the first page's token for posting
+				pageToken, pageID, pageName, pagePic := fetchFacebookPage(accessToken)
+				if pageToken != "" {
+					accessToken = pageToken
+					userID = pageID
+					userName = pageName
+					if pagePic != "" {
+						picture = pagePic
+					}
+				}
+			}
 		case "tiktok":
 			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeTikTokToken(body.Code, body.CodeVerifier, socialKeys, frontendURL)
 		case "x":
@@ -227,13 +239,12 @@ func exchangeYouTubeToken(code string, keys *tenant.SocialKeys, frontendURL stri
 
 // ── Facebook token exchange ──────────────────────────────────
 
-func exchangeFacebookToken(code, refresh string, keys *tenant.SocialKeys, frontendURL string) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
+func exchangeFacebookToken(code, refresh string, keys *tenant.SocialKeys, redirectURI string) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
 	var appID, appSecret string
 	if keys != nil {
 		appID = keys.FacebookAppID
 		appSecret = keys.FacebookSecret
 	}
-	redirectURI := frontendURL + "/integrations/social/facebook"
 	if refresh != "" {
 		redirectURI += "?refresh=" + refresh
 	}
@@ -280,6 +291,29 @@ func exchangeFacebookToken(code, refresh string, keys *tenant.SocialKeys, fronte
 	json.NewDecoder(resp3.Body).Decode(&fbUser)
 
 	return longToken.AccessToken, longToken.AccessToken, fbUser.ID, fbUser.Name, fbUser.Picture.Data.URL, "", longToken.ExpiresIn, nil
+}
+
+// fetchFacebookPage gets the first Page the user manages and returns its page token.
+func fetchFacebookPage(userToken string) (pageToken, pageID, pageName, pagePicture string) {
+	resp, err := http.Get(fmt.Sprintf("https://graph.facebook.com/v20.0/me/accounts?fields=id,name,access_token,picture&access_token=%s", userToken))
+	if err != nil {
+		return "", "", "", ""
+	}
+	defer resp.Body.Close()
+	var pages struct {
+		Data []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			AccessToken string `json:"access_token"`
+			Picture     struct{ Data struct{ URL string } } `json:"picture"`
+		} `json:"data"`
+	}
+	json.NewDecoder(resp.Body).Decode(&pages)
+	if len(pages.Data) == 0 {
+		return "", "", "", ""
+	}
+	p := pages.Data[0]
+	return p.AccessToken, p.ID, p.Name, p.Picture.Data.URL
 }
 
 // ── TikTok token exchange ────────────────────────────────────
