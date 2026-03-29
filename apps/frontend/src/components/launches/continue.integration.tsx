@@ -39,18 +39,21 @@ export const ContinueIntegration: FC<{
   const [successState, setSuccessState] = useState<SuccessState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Helper to handle navigation - redirects if logged or returnURL exists, otherwise shows inline
+  // Helper to handle navigation - in embedded popup, close window instead of navigating
   const navigateOrShow = useCallback(
     (path: string, returnURL: string | undefined, successMessage: string) => {
+      // If this is an OAuth popup from the embedded scheduler, close the popup
+      if (typeof window !== 'undefined' && window.opener) {
+        try { window.opener.location.reload(); } catch {}
+        window.close();
+        return;
+      }
       if (returnURL) {
-        // If returnURL exists, always redirect to it with the path params
         const params = path.includes('?') ? path.split('?')[1] : '';
         push(params ? `${returnURL}?${params}` : returnURL);
       } else if (logged) {
-        // If logged in without returnURL, use normal navigation
         push(path);
       } else {
-        // If not logged in without returnURL, show success inline
         setSuccessState({ message: successMessage });
       }
     },
