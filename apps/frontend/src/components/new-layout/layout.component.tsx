@@ -1,16 +1,9 @@
 'use client';
 
-import React, { ReactNode, useCallback } from 'react';
+import React, { ReactNode, useCallback, useEffect } from 'react';
 import { Plus_Jakarta_Sans } from 'next/font/google';
-const ModeComponent = dynamic(
-  () => import('@gitroom/frontend/components/layout/mode.component'),
-  {
-    ssr: false,
-  }
-);
 
 import clsx from 'clsx';
-import dynamic from 'next/dynamic';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { useSearchParams } from 'next/navigation';
@@ -46,6 +39,20 @@ const jakartaSans = Plus_Jakarta_Sans({
   subsets: ['latin'],
 });
 
+const EmbeddedThemeListener = () => {
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'theme-change' && (e.data.theme === 'dark' || e.data.theme === 'light')) {
+        document.body.classList.remove('dark', 'light');
+        document.body.classList.add(e.data.theme);
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
+  return null;
+};
+
 export const LayoutComponent = ({ children }: { children: ReactNode }) => {
   const fetch = useFetch();
 
@@ -69,10 +76,12 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
   if (!user) return null;
 
   // Embedded mode: strip sidebar, top bar, CopilotKit, padding — just the content area
+  // Listen for theme changes from parent window (1hood controls the theme — SSOT)
   if (isEmbedded) {
     return (
       <ContextWrapper user={user}>
         <MantineWrapper>
+          <EmbeddedThemeListener />
           <ToolTip />
           <Toaster />
           <ShowMediaBoxModal />
@@ -139,9 +148,6 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
                         <StreakComponent />
                         <div className="w-[1px] h-[20px] bg-blockSeparator" />
                         <OrganizationSelector />
-                        <div className="hover:text-newTextColor">
-                          <ModeComponent />
-                        </div>
                         <div className="w-[1px] h-[20px] bg-blockSeparator" />
                         <LanguageComponent />
                         <ChromeExtensionComponent />
