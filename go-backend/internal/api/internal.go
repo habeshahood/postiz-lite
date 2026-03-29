@@ -25,7 +25,7 @@ func RegisterPublic(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Get("/integrations", handleInternalListIntegrations(store))
 	r.Get("/integrations/", handleInternalListIntegrations(store))
 
-	// OAuth callback for social-connect
+	// OAuth callback — uses Redis state for security, not JWT auth
 	r.Post("/integrations/social-connect/{integration}", handleSocialConnectReal(store, rdb))
 
 	// Copilot / AI agent — public because CopilotKit widget doesn't send auth cookies
