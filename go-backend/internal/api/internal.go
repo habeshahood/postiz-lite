@@ -73,6 +73,7 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 	r.Get("/integrations/{id}/internal-plugs", handleEmptyArray())
 	r.Post("/integrations/disable", handleIntegrationToggle(store, true))
 	r.Post("/integrations/enable", handleIntegrationToggle(store, false))
+	r.Delete("/integrations", handleDeleteIntegrationInternal(store))
 	r.Delete("/integrations/", handleDeleteIntegrationInternal(store))
 
 	// Notifications
