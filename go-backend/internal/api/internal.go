@@ -148,6 +148,9 @@ func RegisterInternal(r chi.Router, store *db.Store, rdb *redis.Client) {
 
 	// Approved apps (OAuth)
 	r.Get("/approved-apps", handleEmptyArray())
+	r.Get("/user/approved-apps", handleEmptyArray())
+	r.Put("/integrations", handleUpdateIntegration(store))
+	r.Put("/integrations/", handleUpdateIntegration(store))
 
 	// User extras
 	r.Get("/user/email-notifications", handleEmptyObject())
@@ -862,6 +865,35 @@ func handleDeleteIntegrationInternal(store *db.Store) http.HandlerFunc {
 		if err := store.DeleteIntegration(r.Context(), body.ID, org.ID); err != nil {
 			http.Error(w, `{"msg":"Failed to delete"}`, http.StatusInternalServerError)
 			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
+}
+
+func handleUpdateIntegration(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		org := middleware.GetOrg(r)
+		if org == nil {
+			http.Error(w, `{"msg":"No org"}`, http.StatusUnauthorized)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, `{"msg":"Invalid request"}`, http.StatusBadRequest)
+			return
+		}
+		id, _ := body["id"].(string)
+		if id == "" {
+			http.Error(w, `{"msg":"Missing id"}`, http.StatusBadRequest)
+			return
+		}
+		// Update name if provided
+		if name, ok := body["name"].(string); ok && name != "" {
+			store.Exec(r.Context(), `UPDATE "Integration" SET name = $1, "updatedAt" = NOW() WHERE id = $2 AND "organizationId" = $3`, name, id, org.ID)
+		}
+		// Update additionalSettings if provided
+		if settings, ok := body["additionalSettings"].(string); ok {
+			store.Exec(r.Context(), `UPDATE "Integration" SET "additionalSettings" = $1, "updatedAt" = NOW() WHERE id = $2 AND "organizationId" = $3`, settings, id, org.ID)
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}
