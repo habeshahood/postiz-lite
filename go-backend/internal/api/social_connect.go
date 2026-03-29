@@ -106,7 +106,11 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 			userName = username
 		}
 		if userName == "" {
-			userName = "Channel_" + userID[:8]
+			if len(userID) >= 8 {
+				userName = "Channel_" + userID[:8]
+			} else {
+				userName = "Channel_" + userID
+			}
 		}
 
 		// Calculate token expiration
