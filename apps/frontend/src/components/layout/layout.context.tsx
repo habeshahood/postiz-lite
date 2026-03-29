@@ -85,9 +85,7 @@ function LayoutContextInner(params: { children: ReactNode }) {
           setCookie('showorg', '', -10);
           setCookie('impersonate', '', -10);
         }
-        // In embedded mode (iframe), redirect to the Postiz login within basePath
-        const isEmbedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embedded') === 'true';
-        window.location.href = isEmbedded ? '/s/auth/login' : '/';
+        window.location.href = '/';
       }
       if (response.status === 406) {
         if (
