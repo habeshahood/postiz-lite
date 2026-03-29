@@ -249,13 +249,6 @@ func handleCreateMember(tm *tenant.TenantManager) http.HandlerFunc {
 
 		store := db.NewStore(lt.Pool)
 
-		var orgID string
-		store.QueryRow(r.Context(), `SELECT id FROM "Organization" LIMIT 1`).Scan(&orgID)
-		if orgID == "" {
-			http.Error(w, `{"msg":"No organization in tenant"}`, http.StatusBadRequest)
-			return
-		}
-
 		hash, _ := bcrypt.GenerateFromPassword([]byte(body.Password), 10)
 		hashStr := string(hash)
 
@@ -269,12 +262,23 @@ func handleCreateMember(tm *tenant.TenantManager) http.HandlerFunc {
 			store.Exec(r.Context(), `UPDATE "User" SET name = $1 WHERE id = $2`, body.Name, user.ID)
 		}
 
+		// Create a personal organization for this user (per-user isolation)
+		orgID := uuid.New().String()
+		orgName := body.Name
+		if orgName == "" {
+			orgName = body.Email
+		}
+		apiKey := uuid.New().String()
+		store.Exec(r.Context(), `
+			INSERT INTO "Organization" (id, name, description, "apiKey", "createdAt", "updatedAt")
+			VALUES ($1, $2, '', $3, NOW(), NOW())`, orgID, orgName, apiKey)
+
 		uoID := uuid.New().String()
 		store.Exec(r.Context(), `
 			INSERT INTO "UserOrganization" (id, "userId", "organizationId", disabled, role, "createdAt", "updatedAt")
-			VALUES ($1, $2, $3, false, 'USER', NOW(), NOW())`, uoID, user.ID, orgID)
+			VALUES ($1, $2, $3, false, 'ADMIN', NOW(), NOW())`, uoID, user.ID, orgID)
 
-		writeJSON(w, http.StatusOK, map[string]any{"id": user.ID, "email": user.Email})
+		writeJSON(w, http.StatusOK, map[string]any{"id": user.ID, "email": user.Email, "organizationId": orgID})
 	}
 }
 
