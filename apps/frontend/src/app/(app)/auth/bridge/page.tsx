@@ -13,7 +13,8 @@ export default function AuthBridgePage() {
     const embedded = searchParams.get('embedded')
 
     if (token) {
-      // Set cookie (same-origin) + localStorage (iframe fallback for third-party cookie blocking)
+      // Window global survives client-side navigation even when cookies/localStorage are blocked (e.g. Brave iframe)
+      (window as any).__POSTIZ_AUTH = token
       document.cookie = `auth=${token}; path=/; max-age=${60 * 60 * 24}; SameSite=None; Secure`
       try { localStorage.setItem('auth', token) } catch {}
       // Carry embedded flag through navigation

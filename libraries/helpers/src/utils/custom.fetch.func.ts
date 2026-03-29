@@ -22,7 +22,8 @@ export const customFetch = (
     const authNonSecuredCookie =
       typeof document === 'undefined'
         ? null
-        : (document.cookie
+        : ((typeof window !== 'undefined' && (window as any).__POSTIZ_AUTH)
+          || document.cookie
             .split(';')
             .find((p) => p.includes('auth='))
             ?.split('=')[1]
