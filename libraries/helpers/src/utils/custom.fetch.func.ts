@@ -14,10 +14,14 @@ export const customFetch = (
   secured: boolean = true
 ) => {
   return async function newFetch(url: string, options: RequestInit = {}) {
-    const loggedAuth =
-      typeof window === 'undefined'
-        ? undefined
-        : new URL(window.location.href).searchParams.get('loggedAuth');
+    // Read loggedAuth from URL on first load, then persist in window global
+    // so it survives client-side navigations that drop the query param
+    let loggedAuth: string | null | undefined;
+    if (typeof window !== 'undefined') {
+      const fromUrl = new URL(window.location.href).searchParams.get('loggedAuth');
+      if (fromUrl) (window as any).__POSTIZ_AUTH = fromUrl;
+      loggedAuth = (window as any).__POSTIZ_AUTH || fromUrl;
+    }
     const newRequestObject = await params?.beforeRequest?.(url, options);
     const authNonSecuredCookie =
       typeof document === 'undefined'
@@ -45,6 +49,11 @@ export const customFetch = (
             .find((p) => p.includes('impersonate='))
             ?.split('=')[1];
 
+    if (typeof window !== 'undefined' && url.includes('/user/self')) {
+      console.log('[POSTIZ-DEBUG] loggedAuth:', loggedAuth ? loggedAuth.substring(0, 20) + '...' : 'NULL');
+      console.log('[POSTIZ-DEBUG] cookieAuth:', authNonSecuredCookie ? String(authNonSecuredCookie).substring(0, 20) + '...' : 'NULL');
+      console.log('[POSTIZ-DEBUG] location:', window.location.href.substring(0, 80));
+    }
     const fetchRequest = await fetch(params.baseUrl + url, {
       ...(secured ? { credentials: 'include' } : {}),
       ...(newRequestObject || options),
