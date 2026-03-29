@@ -77,6 +77,8 @@ func handleSocialOAuthURLReal(store *db.Store, rdb *redis.Client) http.HandlerFu
 			authURL, codeVerifier, state, err = generateYouTubeAuthURL(frontendURL, socialKeys)
 		case "facebook":
 			authURL, codeVerifier, state, err = generateFacebookAuthURL(frontendURL, socialKeys)
+		case "instagram":
+			authURL, codeVerifier, state, err = generateInstagramAuthURL(frontendURL, socialKeys)
 		default:
 			// For other platforms, return a placeholder
 			state = randomState()
@@ -224,6 +226,35 @@ func generateFacebookAuthURL(frontendURL string, keys *tenant.SocialKeys) (authU
 	redirectURI := frontendURL + "/integrations/social/facebook"
 
 	scopes := "pages_show_list,pages_manage_posts"
+
+	u, _ := url.Parse("https://www.facebook.com/v20.0/dialog/oauth")
+	q := u.Query()
+	q.Set("client_id", appID)
+	q.Set("redirect_uri", redirectURI)
+	q.Set("state", state)
+	q.Set("response_type", "code")
+	q.Set("scope", scopes)
+	u.RawQuery = q.Encode()
+
+	return u.String(), codeVerifier, state, nil
+}
+
+// ── Instagram (via Facebook OAuth 2.0) ──────────────────────
+
+func generateInstagramAuthURL(frontendURL string, keys *tenant.SocialKeys) (authURL, codeVerifier, state string, err error) {
+	var appID string
+	if keys != nil {
+		appID = keys.FacebookAppID
+	}
+	if appID == "" {
+		return "", "", "", fmt.Errorf("FACEBOOK_APP_ID must be set for Instagram")
+	}
+
+	state = randomState()
+	codeVerifier = randomState()
+	redirectURI := frontendURL + "/integrations/social/instagram"
+
+	scopes := "pages_show_list,instagram_basic,instagram_content_publish"
 
 	u, _ := url.Parse("https://www.facebook.com/v20.0/dialog/oauth")
 	q := u.Query()
