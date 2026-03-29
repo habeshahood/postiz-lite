@@ -58,13 +58,13 @@ export const customFetch = (
           ? {}
           : { 'Content-Type': 'application/json' }),
         Accept: 'application/json',
-        ...(loggedAuth ? { auth: loggedAuth } : {}),
         ...options?.headers,
         ...(auth
           ? { auth }
           : authNonSecuredCookie
           ? { auth: authNonSecuredCookie }
           : {}),
+        ...(loggedAuth ? { auth: loggedAuth } : {}),
         ...(authNonSecuredImpersonate
           ? { impersonate: authNonSecuredImpersonate }
           : {}),
