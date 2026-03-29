@@ -14,13 +14,14 @@ export const customFetch = (
   secured: boolean = true
 ) => {
   return async function newFetch(url: string, options: RequestInit = {}) {
-    // Read loggedAuth from URL on first load, then persist in window global
-    // so it survives client-side navigations that drop the query param
+    // Read loggedAuth from URL, window global, or sessionStorage (OAuth popup)
     let loggedAuth: string | null | undefined;
     if (typeof window !== 'undefined') {
       const fromUrl = new URL(window.location.href).searchParams.get('loggedAuth');
       if (fromUrl) (window as any).__POSTIZ_AUTH = fromUrl;
-      loggedAuth = (window as any).__POSTIZ_AUTH || fromUrl;
+      let fromSession: string | null = null;
+      try { fromSession = sessionStorage.getItem('postiz_auth'); } catch {}
+      loggedAuth = (window as any).__POSTIZ_AUTH || fromUrl || fromSession;
     }
     const newRequestObject = await params?.beforeRequest?.(url, options);
     const authNonSecuredCookie =

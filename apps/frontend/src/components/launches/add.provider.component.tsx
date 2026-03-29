@@ -470,6 +470,12 @@ export const AddProviderComponent: FC<{
           // In embedded mode (iframe), open OAuth in a popup — OAuth providers block iframes
           const isEmbedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embedded') === 'true';
           if (isEmbedded) {
+            // Store auth token so the OAuth callback popup can read it
+            const authToken = (window as any).__POSTIZ_AUTH || new URLSearchParams(window.location.search).get('loggedAuth');
+            if (authToken) {
+              try { sessionStorage.setItem('postiz_auth', authToken); } catch {}
+              document.cookie = `auth=${authToken}; path=/; max-age=${60 * 60}; SameSite=Lax; Secure`;
+            }
             window.open(url, '_blank', 'width=600,height=700,scrollbars=yes');
           } else {
             window.location.href = url;
