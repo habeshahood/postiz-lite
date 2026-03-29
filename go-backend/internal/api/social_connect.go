@@ -363,11 +363,19 @@ func exchangeTikTokToken(code, codeVerifier string, keys *tenant.SocialKeys, fro
 		return "", "", "", "", "", "", 0, fmt.Errorf("%s: %s", tokenResp.Error, tokenResp.ErrorDesc)
 	}
 
-	// Get user info
-	req2, _ := http.NewRequest("GET", "https://open.tiktokapis.com/v2/user/info/?fields=open_id,avatar_url,display_name,username", nil)
+	// Get user info (only request fields available in user.info.basic scope)
+	req2, _ := http.NewRequest("GET", "https://open.tiktokapis.com/v2/user/info/?fields=open_id,avatar_url,display_name", nil)
 	req2.Header.Set("Authorization", "Bearer "+tokenResp.AccessToken)
-	resp2, _ := http.DefaultClient.Do(req2)
+	resp2, err2 := http.DefaultClient.Do(req2)
+	if err2 != nil {
+		slog.Error("TikTok user info request failed", "error", err2)
+		// Still return the token — we just won't have user details
+		return tokenResp.AccessToken, tokenResp.RefreshToken, "tiktok_user", "TikTok User", "", "", 82800, nil
+	}
 	defer resp2.Body.Close()
+
+	body2, _ := io.ReadAll(resp2.Body)
+	slog.Info("TikTok user info response", "body", string(body2[:min(len(body2), 500)]))
 
 	var userResp struct {
 		Data struct {
@@ -375,14 +383,20 @@ func exchangeTikTokToken(code, codeVerifier string, keys *tenant.SocialKeys, fro
 				OpenID      string `json:"open_id"`
 				AvatarURL   string `json:"avatar_url"`
 				DisplayName string `json:"display_name"`
-				Username    string `json:"username"`
 			} `json:"user"`
 		} `json:"data"`
 	}
-	json.NewDecoder(resp2.Body).Decode(&userResp)
+	json.Unmarshal(body2, &userResp)
 
-	uid := strings.ReplaceAll(userResp.Data.User.OpenID, "-", "")
-	return tokenResp.AccessToken, tokenResp.RefreshToken, uid, userResp.Data.User.DisplayName, userResp.Data.User.AvatarURL, userResp.Data.User.Username, 82800, nil
+	uid := userResp.Data.User.OpenID
+	if uid == "" {
+		uid = "tiktok_" + randomState()[:8]
+	}
+	displayName := userResp.Data.User.DisplayName
+	if displayName == "" {
+		displayName = "TikTok"
+	}
+	return tokenResp.AccessToken, tokenResp.RefreshToken, uid, displayName, userResp.Data.User.AvatarURL, "", 82800, nil
 }
 
 // ── X / Twitter token exchange (OAuth 1.0a) ──────────────────
