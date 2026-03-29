@@ -401,51 +401,70 @@ func exchangeTikTokToken(code, codeVerifier string, keys *tenant.SocialKeys, fro
 
 // ── X / Twitter token exchange (OAuth 1.0a) ──────────────────
 
-func exchangeXToken(oauthVerifier, codeVerifier string, keys *tenant.SocialKeys) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
+func exchangeXToken(code, codeVerifier string, keys *tenant.SocialKeys) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
 	if codeVerifier == "" {
 		return "", "", "", "", "", "", 0, fmt.Errorf("missing code verifier (OAuth state expired)")
 	}
 
-	parts := strings.SplitN(codeVerifier, ":", 2)
-	if len(parts) != 2 {
-		return "", "", "", "", "", "", 0, fmt.Errorf("invalid code verifier format")
-	}
-	oauthToken, oauthSecret := parts[0], parts[1]
-
-	var apiKey, apiSecret string
+	var clientID, clientSecret string
 	if keys != nil {
-		apiKey = keys.XAPIKey
-		apiSecret = keys.XAPISecret
+		clientID = keys.XAPIKey
+		clientSecret = keys.XAPISecret
 	}
 
-	// Exchange request token for access token
+	// OAuth 2.0 PKCE token exchange
 	formData := url.Values{
-		"oauth_verifier": {oauthVerifier},
+		"code":          {code},
+		"grant_type":    {"authorization_code"},
+		"redirect_uri":  {"https://postiz.1h00d.com/integrations/social/x"},
+		"code_verifier": {codeVerifier},
 	}
 
-	req, _ := http.NewRequest("POST", "https://api.twitter.com/oauth/access_token?"+formData.Encode(), nil)
-	_ = oauthToken
-	_ = oauthSecret
-	_ = apiKey
-	_ = apiSecret
-	// OAuth 1.0a signing is complex — for now use the oauth1 library
-	// This is a simplified version
+	req, _ := http.NewRequest("POST", "https://api.twitter.com/2/oauth2/token", strings.NewReader(formData.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(clientID, clientSecret)
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", "", "", "", "", "", 0, fmt.Errorf("access token request: %w", err)
+		return "", "", "", "", "", "", 0, fmt.Errorf("token request: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
-	vals, _ := url.ParseQuery(string(raw))
-	at := vals.Get("oauth_token")
-	as := vals.Get("oauth_token_secret")
-	uid := vals.Get("user_id")
-	screenName := vals.Get("screen_name")
-
-	if at == "" {
-		return "", "", "", "", "", "", 0, fmt.Errorf("X OAuth failed: %s", string(raw))
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		Error        string `json:"error"`
+		ErrorDesc    string `json:"error_description"`
+	}
+	json.Unmarshal(raw, &tokenResp)
+	if tokenResp.Error != "" {
+		return "", "", "", "", "", "", 0, fmt.Errorf("X OAuth2: %s — %s", tokenResp.Error, tokenResp.ErrorDesc)
+	}
+	if tokenResp.AccessToken == "" {
+		return "", "", "", "", "", "", 0, fmt.Errorf("X OAuth2 empty token: %s", string(raw[:min(len(raw), 200)]))
 	}
 
-	return at + ":" + as, "", uid, screenName, "", screenName, 999999999, nil
+	// Get user info
+	req2, _ := http.NewRequest("GET", "https://api.twitter.com/2/users/me?user.fields=profile_image_url,name,username", nil)
+	req2.Header.Set("Authorization", "Bearer "+tokenResp.AccessToken)
+	resp2, err2 := http.DefaultClient.Do(req2)
+	if err2 != nil {
+		slog.Error("X user info failed", "error", err2)
+		return tokenResp.AccessToken, tokenResp.RefreshToken, "x_user", "X User", "", "", tokenResp.ExpiresIn, nil
+	}
+	defer resp2.Body.Close()
+
+	var userResp struct {
+		Data struct {
+			ID              string `json:"id"`
+			Name            string `json:"name"`
+			Username        string `json:"username"`
+			ProfileImageURL string `json:"profile_image_url"`
+		} `json:"data"`
+	}
+	json.NewDecoder(resp2.Body).Decode(&userResp)
+
+	return tokenResp.AccessToken, tokenResp.RefreshToken, userResp.Data.ID, userResp.Data.Name, userResp.Data.ProfileImageURL, userResp.Data.Username, tokenResp.ExpiresIn, nil
 }
