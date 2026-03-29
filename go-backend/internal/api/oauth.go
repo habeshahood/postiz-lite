@@ -225,7 +225,7 @@ func generateFacebookAuthURL(frontendURL string, keys *tenant.SocialKeys) (authU
 	codeVerifier = randomState()
 	redirectURI := frontendURL + "/integrations/social/facebook"
 
-	scopes := "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata,pages_read_user_content,read_insights,business_management"
+	scopes := "pages_show_list,pages_read_engagement,pages_manage_posts,pages_manage_metadata,read_insights,business_management"
 
 	u, _ := url.Parse("https://www.facebook.com/v20.0/dialog/oauth")
 	q := u.Query()
