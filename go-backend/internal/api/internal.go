@@ -715,9 +715,7 @@ func handleInternalListIntegrations(store *db.Store) http.HandlerFunc {
 			{Name: "X", Identifier: "x", Editor: "normal"},
 			{Name: "Facebook Page", Identifier: "facebook", Editor: "normal"},
 			{Name: "YouTube", Identifier: "youtube", Editor: "normal"},
-			{Name: "Telegram", Identifier: "telegram", Editor: "normal", CustomFields: []customField{
-				{Key: "token", Label: "Bot Token (from @BotFather)", Validation: `/^.{10,}$/`, Type: "password"},
-			}},
+			{Name: "Telegram", Identifier: "telegram", Editor: "normal"},
 			{Name: "TikTok", Identifier: "tiktok", Editor: "normal"},
 		},
 		"article": []any{},
