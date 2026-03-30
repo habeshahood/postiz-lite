@@ -80,8 +80,12 @@ function LayoutContextInner(params: { children: ReactNode }) {
       }
 
       if (response.status === 401 || response?.headers?.get('logout')) {
-        // Don't redirect on OAuth callback pages — they handle auth via Redis state
-        if (typeof window !== 'undefined' && window.location.pathname.includes('/integrations/social/')) {
+        // Don't redirect on OAuth callback pages or popup windows
+        if (typeof window !== 'undefined' && (
+          window.location.pathname.includes('/integrations/social/') ||
+          window.location.pathname.includes('/s/integrations/social/') ||
+          window.opener !== null
+        )) {
           return true;
         }
         if (!isSecured) {
