@@ -467,6 +467,22 @@ export const AddProviderComponent: FC<{
             return;
           }
 
+          // Telegram direct connect — no popup needed, auto-connect with shared bot
+          if (url.startsWith('telegram-direct:')) {
+            const tgState = url.split(':')[1];
+            const connectRes = await fetch(`/integrations/social-connect/telegram`, {
+              method: 'POST',
+              body: JSON.stringify({ code: 'bot-token', state: tgState }),
+            });
+            if (connectRes.ok) {
+              window.location.reload();
+            } else {
+              const errData = await connectRes.json().catch(() => ({}));
+              toaster.show(errData.msg || 'Could not connect Telegram', 'warning');
+            }
+            return;
+          }
+
           // In embedded mode (iframe), open OAuth in a popup — OAuth providers block iframes
           const isEmbedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embedded') === 'true';
           if (isEmbedded) {

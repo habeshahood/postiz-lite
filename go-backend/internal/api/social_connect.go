@@ -92,10 +92,39 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 			codeVerifier, _ := rdb.Get(ctx, "login:"+body.State).Result()
 			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeXToken(body.Code, codeVerifier, socialKeys)
 		case "telegram":
-			// Telegram: code is the bot token, no OAuth exchange needed
-			accessToken = body.Code
-			userID = "tg_" + body.Code[:10]
-			userName = "Telegram Bot"
+			// Telegram: use the shared bot token from tenant config
+			var botToken string
+			if socialKeys != nil {
+				botToken = socialKeys.TelegramBotToken
+			}
+			if botToken == "" {
+				http.Error(w, `{"msg":"Telegram bot not configured"}`, http.StatusBadRequest)
+				return
+			}
+			accessToken = botToken
+			// Get bot info from Telegram API
+			botResp, botErr := http.Get(fmt.Sprintf("https://api.telegram.org/bot%s/getMe", botToken))
+			if botErr == nil {
+				defer botResp.Body.Close()
+				var botInfo struct {
+					OK     bool `json:"ok"`
+					Result struct {
+						ID        int64  `json:"id"`
+						FirstName string `json:"first_name"`
+						Username  string `json:"username"`
+					} `json:"result"`
+				}
+				json.NewDecoder(botResp.Body).Decode(&botInfo)
+				if botInfo.OK {
+					userID = fmt.Sprintf("tg_%d", botInfo.Result.ID)
+					userName = botInfo.Result.FirstName
+					username = botInfo.Result.Username
+				}
+			}
+			if userID == "" {
+				userID = "tg_" + randomState()[:8]
+				userName = "Telegram"
+			}
 			expiresIn = 999999999
 		default:
 			http.Error(w, fmt.Sprintf(`{"msg":"OAuth connect not implemented for %s"}`, integration), http.StatusNotImplemented)

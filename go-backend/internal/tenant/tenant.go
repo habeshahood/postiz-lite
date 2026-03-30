@@ -21,6 +21,7 @@ type SocialKeys struct {
 	YouTubeSecret    string `json:"youtube_client_secret"`
 	FacebookAppID    string `json:"facebook_app_id"`
 	FacebookSecret   string `json:"facebook_app_secret"`
+	TelegramBotToken string `json:"telegram_bot_token"`
 }
 
 // Config is one tenant's JSON-serializable configuration.

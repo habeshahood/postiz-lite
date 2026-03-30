@@ -80,10 +80,11 @@ func handleSocialOAuthURLReal(store *db.Store, rdb *redis.Client) http.HandlerFu
 		case "instagram":
 			authURL, codeVerifier, state, err = generateInstagramAuthURL(frontendURL, socialKeys)
 		case "telegram":
-			// Telegram uses bot token, not OAuth. Frontend shows a form.
+			// Telegram: use shared bot token, auto-connect
 			state = randomState()
 			codeVerifier = randomState()
-			authURL = state
+			// Return a special URL that the frontend handles — triggers direct connect
+			authURL = "telegram-direct:" + state
 		default:
 			// For other platforms, return a placeholder
 			state = randomState()
