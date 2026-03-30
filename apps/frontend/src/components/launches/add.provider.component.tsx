@@ -467,29 +467,22 @@ export const AddProviderComponent: FC<{
             return;
           }
 
-          // Telegram: open deep link to add bot to channel, then poll for connection
+          // Telegram: connect immediately with shared bot
           if (url.startsWith('telegram-direct:')) {
             const tgState = url.split(':')[1];
-            // Open Telegram deep link — user picks channel, bot gets added as admin
-            window.open('https://t.me/onehoodscheduler_bot?startchannel&admin=post_messages', '_blank');
-            // Poll for the bot being added (webhook will fire when user adds bot)
-            toaster.show('Add the bot to your channel in Telegram, then come back here', 'success');
-            let attempts = 0;
-            const poll = setInterval(async () => {
-              attempts++;
-              if (attempts > 30) { clearInterval(poll); return; } // 30s timeout
-              try {
-                const connectRes = await fetch(`/integrations/social-connect/telegram`, {
-                  method: 'POST',
-                  body: JSON.stringify({ code: 'bot-token', state: tgState }),
-                });
-                if (connectRes.ok) {
-                  clearInterval(poll);
-                  toaster.show('Telegram connected!', 'success');
-                  window.location.reload();
-                }
-              } catch {}
-            }, 1000);
+            const connectRes = await fetch(`/integrations/social-connect/telegram`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code: 'bot-token', state: tgState }),
+            });
+            if (connectRes.ok) {
+              toaster.show('Telegram connected! Add @onehoodscheduler_bot as admin to your channel to post.', 'success');
+              modal.closeAll();
+              window.location.reload();
+            } else {
+              const errData = await connectRes.json().catch(() => ({}));
+              toaster.show(errData.msg || 'Could not connect Telegram', 'warning');
+            }
             return;
           }
 

@@ -92,7 +92,7 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 			codeVerifier, _ := rdb.Get(ctx, "login:"+body.State).Result()
 			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeXToken(body.Code, codeVerifier, socialKeys)
 		case "telegram":
-			// Telegram: use the shared bot token, find the most recently added channel
+			// Telegram: connect with shared bot token immediately
 			var botToken string
 			if socialKeys != nil {
 				botToken = socialKeys.TelegramBotToken
@@ -101,19 +101,9 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 				http.Error(w, `{"msg":"Telegram bot not configured"}`, http.StatusBadRequest)
 				return
 			}
-			// Find the most recently added channel (from webhook events)
-			var channelID, channelName string
-			store.QueryRow(ctx, `SELECT channel_id, channel_name FROM "TelegramChannel" ORDER BY created_at DESC LIMIT 1`).Scan(&channelID, &channelName)
-			if channelID == "" {
-				http.Error(w, `{"msg":"No channel found. Add @onehoodscheduler_bot to your Telegram channel first."}`, http.StatusBadRequest)
-				return
-			}
 			accessToken = botToken
-			userID = "tg_" + channelID
-			userName = channelName
-			if userName == "" {
-				userName = "Telegram Channel"
-			}
+			userID = "tg_bot"
+			userName = "Telegram"
 			expiresIn = 999999999
 		default:
 			http.Error(w, fmt.Sprintf(`{"msg":"OAuth connect not implemented for %s"}`, integration), http.StatusNotImplemented)
