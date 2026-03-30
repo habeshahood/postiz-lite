@@ -715,12 +715,13 @@ func handleInternalListIntegrations(store *db.Store) http.HandlerFunc {
 			{Name: "X", Identifier: "x", Editor: "normal"},
 			{Name: "Facebook Page", Identifier: "facebook", Editor: "normal"},
 			{Name: "YouTube", Identifier: "youtube", Editor: "normal"},
-			{Name: "Telegram", Identifier: "telegram", Editor: "normal"},
+			{Name: "Telegram", Identifier: "telegram", Editor: "normal", IsExternal: true, CustomFields: []customField{
+				{Key: "token", Label: "Bot Token (from @BotFather)", Validation: `/^[0-9]+:.+$/`, Type: "password"},
+			}},
 			{Name: "TikTok", Identifier: "tiktok", Editor: "normal"},
 		},
 		"article": []any{},
 	}
-	_ = customField{}
 	// Original full catalog kept for reference — only 6 platforms enabled for 1hood
 	_ = map[string]any{
 		"social_full_unused": []providerInfo{
