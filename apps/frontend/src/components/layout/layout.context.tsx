@@ -80,6 +80,10 @@ function LayoutContextInner(params: { children: ReactNode }) {
       }
 
       if (response.status === 401 || response?.headers?.get('logout')) {
+        // Don't redirect on OAuth callback pages — they handle auth via Redis state
+        if (typeof window !== 'undefined' && window.location.pathname.includes('/integrations/social/')) {
+          return true;
+        }
         if (!isSecured) {
           setCookie('auth', '', -10);
           setCookie('showorg', '', -10);
