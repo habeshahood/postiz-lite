@@ -79,6 +79,11 @@ func handleSocialOAuthURLReal(store *db.Store, rdb *redis.Client) http.HandlerFu
 			authURL, codeVerifier, state, err = generateFacebookAuthURL(frontendURL, socialKeys)
 		case "instagram":
 			authURL, codeVerifier, state, err = generateInstagramAuthURL(frontendURL, socialKeys)
+		case "telegram":
+			// Telegram uses bot token, not OAuth. Frontend shows a form.
+			state = randomState()
+			codeVerifier = randomState()
+			authURL = state
 		default:
 			// For other platforms, return a placeholder
 			state = randomState()
@@ -165,7 +170,7 @@ func generateTikTokAuthURL(frontendURL string, keys *tenant.SocialKeys) (authURL
 	codeVerifier = randomState()
 	redirectURI := frontendURL + "/integrations/social/tiktok"
 
-	scopes := "user.info.basic,video.publish,video.upload,video.list"
+	scopes := "user.info.basic,video.upload"
 
 	u, _ := url.Parse("https://www.tiktok.com/v2/auth/authorize/")
 	q := u.Query()

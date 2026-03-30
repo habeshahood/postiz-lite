@@ -91,6 +91,12 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 		case "x":
 			codeVerifier, _ := rdb.Get(ctx, "login:"+body.State).Result()
 			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeXToken(body.Code, codeVerifier, socialKeys)
+		case "telegram":
+			// Telegram: code is the bot token, no OAuth exchange needed
+			accessToken = body.Code
+			userID = "tg_" + body.Code[:10]
+			userName = "Telegram Bot"
+			expiresIn = 999999999
 		default:
 			http.Error(w, fmt.Sprintf(`{"msg":"OAuth connect not implemented for %s"}`, integration), http.StatusNotImplemented)
 			return
