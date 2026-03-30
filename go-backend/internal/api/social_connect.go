@@ -92,7 +92,7 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 			codeVerifier, _ := rdb.Get(ctx, "login:"+body.State).Result()
 			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeXToken(body.Code, codeVerifier, socialKeys)
 		case "telegram":
-			// Telegram: use the shared bot token from tenant config
+			// Telegram: use the shared bot token, find the most recently added channel
 			var botToken string
 			if socialKeys != nil {
 				botToken = socialKeys.TelegramBotToken
@@ -101,29 +101,18 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 				http.Error(w, `{"msg":"Telegram bot not configured"}`, http.StatusBadRequest)
 				return
 			}
-			accessToken = botToken
-			// Get bot info from Telegram API
-			botResp, botErr := http.Get(fmt.Sprintf("https://api.telegram.org/bot%s/getMe", botToken))
-			if botErr == nil {
-				defer botResp.Body.Close()
-				var botInfo struct {
-					OK     bool `json:"ok"`
-					Result struct {
-						ID        int64  `json:"id"`
-						FirstName string `json:"first_name"`
-						Username  string `json:"username"`
-					} `json:"result"`
-				}
-				json.NewDecoder(botResp.Body).Decode(&botInfo)
-				if botInfo.OK {
-					userID = fmt.Sprintf("tg_%d", botInfo.Result.ID)
-					userName = botInfo.Result.FirstName
-					username = botInfo.Result.Username
-				}
+			// Find the most recently added channel (from webhook events)
+			var channelID, channelName string
+			store.QueryRow(ctx, `SELECT channel_id, channel_name FROM "TelegramChannel" ORDER BY created_at DESC LIMIT 1`).Scan(&channelID, &channelName)
+			if channelID == "" {
+				http.Error(w, `{"msg":"No channel found. Add @onehoodscheduler_bot to your Telegram channel first."}`, http.StatusBadRequest)
+				return
 			}
-			if userID == "" {
-				userID = "tg_" + randomState()[:8]
-				userName = "Telegram"
+			accessToken = botToken
+			userID = "tg_" + channelID
+			userName = channelName
+			if userName == "" {
+				userName = "Telegram Channel"
 			}
 			expiresIn = 999999999
 		default:
@@ -502,4 +491,90 @@ func exchangeXToken(code, codeVerifier string, keys *tenant.SocialKeys) (accessT
 	json.NewDecoder(resp2.Body).Decode(&userResp)
 
 	return tokenResp.AccessToken, tokenResp.RefreshToken, userResp.Data.ID, userResp.Data.Name, userResp.Data.ProfileImageURL, userResp.Data.Username, tokenResp.ExpiresIn, nil
+}
+
+// handleTelegramWebhook processes my_chat_member updates from Telegram
+func handleTelegramWebhook(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		slog.Info("telegram webhook received", "body", string(raw[:min(len(raw), 500)]))
+
+		var update struct {
+			MyChatMember struct {
+				Chat struct {
+					ID    int64  `json:"id"`
+					Title string `json:"title"`
+					Type  string `json:"type"`
+				} `json:"chat"`
+				From struct {
+					ID       int64  `json:"id"`
+					Username string `json:"username"`
+				} `json:"from"`
+				NewChatMember struct {
+					Status string `json:"status"`
+				} `json:"new_chat_member"`
+			} `json:"my_chat_member"`
+		}
+		json.Unmarshal(raw, &update)
+
+		mcm := update.MyChatMember
+		if mcm.Chat.ID == 0 {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		status := mcm.NewChatMember.Status
+		channelID := fmt.Sprintf("%d", mcm.Chat.ID)
+		fromID := fmt.Sprintf("%d", mcm.From.ID)
+
+		if status == "administrator" || status == "member" {
+			// Bot was added to a channel/group
+			store.Exec(r.Context(), `
+				INSERT INTO "TelegramChannel" (channel_id, channel_name, channel_type, added_by_telegram_id)
+				VALUES ($1, $2, $3, $4)
+				ON CONFLICT (channel_id) DO UPDATE SET channel_name = $2, added_by_telegram_id = $4`,
+				channelID, mcm.Chat.Title, mcm.Chat.Type, fromID)
+			slog.Info("telegram: bot added to channel", "channel", mcm.Chat.Title, "by", mcm.From.Username)
+		} else if status == "left" || status == "kicked" {
+			// Bot was removed
+			store.Exec(r.Context(), `DELETE FROM "TelegramChannel" WHERE channel_id = $1`, channelID)
+			slog.Info("telegram: bot removed from channel", "channel", mcm.Chat.Title)
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// handleTelegramChannels returns channels where the bot was added by a specific telegram user
+func handleTelegramChannels(store *db.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		telegramUserID := r.URL.Query().Get("telegram_id")
+		if telegramUserID == "" {
+			writeJSON(w, http.StatusOK, []any{})
+			return
+		}
+
+		rows, err := store.Query(r.Context(), `
+			SELECT channel_id, channel_name, channel_type FROM "TelegramChannel"
+			WHERE added_by_telegram_id = $1
+			ORDER BY created_at DESC`, telegramUserID)
+		if err != nil {
+			writeJSON(w, http.StatusOK, []any{})
+			return
+		}
+		defer rows.Close()
+
+		var channels []map[string]string
+		for rows.Next() {
+			var cid, cname, ctype string
+			rows.Scan(&cid, &cname, &ctype)
+			channels = append(channels, map[string]string{
+				"id": cid, "name": cname, "type": ctype,
+			})
+		}
+		if channels == nil {
+			channels = []map[string]string{}
+		}
+		writeJSON(w, http.StatusOK, channels)
+	}
 }

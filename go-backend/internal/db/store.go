@@ -29,6 +29,11 @@ func (s *Store) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return s.pool.QueryRow(ctx, sql, args...)
 }
 
+// Query exposes pool.Query for multi-row queries from handlers.
+func (s *Store) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return s.pool.Query(ctx, sql, args...)
+}
+
 // Ping checks that the database connection is alive.
 func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
