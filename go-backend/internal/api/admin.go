@@ -18,13 +18,22 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// adminConfig holds server-side config injected into the admin page.
+type adminConfig struct {
+	BaseDomain string
+	DBHost     string
+	DBUser     string
+	RedisHost  string
+	UploadBase string
+}
+
 // RegisterAdmin mounts admin-only tenant management routes.
 // Protected by a master API key (ADMIN_KEY env var).
 // If ADMIN_KEY is not set, only requests from 127.0.0.1 are allowed.
 func RegisterAdmin(r chi.Router, tm *tenant.TenantManager, tenantsFile string, buildRouter func(store *db.Store, cfg tenant.Config, rdb *redis.Client) chi.Router) {
 	// Admin dashboard page (auth handled client-side via ADMIN_KEY)
-	r.Get("/admin", handleAdminPage())
-	r.Get("/admin/", handleAdminPage())
+	r.Get("/admin", handleAdminPage(tm))
+	r.Get("/admin/", handleAdminPage(tm))
 
 	// Domain verification for Caddy on-demand TLS (no auth — called by Caddy internally)
 	r.Get("/admin/verify-domain", handleVerifyDomain(tm))

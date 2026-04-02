@@ -1,12 +1,60 @@
 package api
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
 
-func handleAdminPage() http.HandlerFunc {
+	"github.com/habeshahood/postiz-lite/internal/tenant"
+)
+
+func handleAdminPage(tm *tenant.TenantManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := resolveAdminConfig(tm)
+		script := fmt.Sprintf(`<script>window.__ADMIN_CONFIG=%s;</script>`,
+			adminConfigJSON(cfg))
+		page := strings.Replace(adminPageHTML, "</head>", script+"\n</head>", 1)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(adminPageHTML))
+		w.Write([]byte(page))
 	}
+}
+
+func resolveAdminConfig(tm *tenant.TenantManager) adminConfig {
+	baseDomain := os.Getenv("ADMIN_BASE_DOMAIN")
+	if baseDomain == "" {
+		// Fall back to the first known tenant's host if available
+		if tenants := tm.List(); len(tenants) > 0 {
+			if hosts, ok := tenants[0]["hosts"].([]string); ok && len(hosts) > 0 {
+				h := hosts[0]
+				// Strip the leading subdomain to get the base domain
+				if idx := strings.Index(h, "."); idx != -1 {
+					baseDomain = h[idx+1:]
+				} else {
+					baseDomain = h
+				}
+			}
+		}
+	}
+	if baseDomain == "" {
+		baseDomain = "example.com"
+	}
+	uploadBase := os.Getenv("UPLOAD_BASE_DIR")
+	if uploadBase == "" {
+		uploadBase = "/home/petros/postiz-uploads"
+	}
+	return adminConfig{
+		BaseDomain: baseDomain,
+		DBHost:     "127.0.0.1:5432",
+		DBUser:     "postiz-user",
+		RedisHost:  "127.0.0.1:6379",
+		UploadBase: uploadBase,
+	}
+}
+
+func adminConfigJSON(cfg adminConfig) string {
+	return fmt.Sprintf(`{"baseDomain":%q,"dbHost":%q,"dbUser":%q,"redisHost":%q,"uploadBase":%q}`,
+		cfg.BaseDomain, cfg.DBHost, cfg.DBUser, cfg.RedisHost, cfg.UploadBase)
 }
 
 const adminPageHTML = `<!DOCTYPE html>
@@ -59,7 +107,7 @@ h1{font-size:2.4rem;letter-spacing:-0.5px;margin-bottom:0.3rem}
 
 <div class="add-row">
 <input type="text" id="name" placeholder="site name" autocomplete="off" />
-<span class="suffix">.postiz.1h00d.com</span>
+<span class="suffix" id="domainSuffix">.example.com</span>
 <button id="addBtn" onclick="add()">Add</button>
 </div>
 
@@ -87,6 +135,9 @@ h1{font-size:2.4rem;letter-spacing:-0.5px;margin-bottom:0.3rem}
 const $=id=>document.getElementById(id);
 const key=()=>$('key').value;
 const hdr=()=>({Authorization:'Bearer '+key(),'Content-Type':'application/json'});
+
+// Populate domain suffix from server-injected config
+(function(){const cfg=window.__ADMIN_CONFIG||{};const s=$('domainSuffix');if(s)s.textContent='.'+(cfg.baseDomain||'example.com')})();
 
 $('key').value=localStorage.getItem('pk')||'';
 $('name').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();add()}});
@@ -158,16 +209,21 @@ async function delMember(tid,uid){
 async function add(){
   const name=$('name').value.trim().toLowerCase().replace(/[^a-z0-9-]/g,'');
   if(!name){$('name').focus();return}
-  const domain=name+'.postiz.1h00d.com';
+  const cfg=window.__ADMIN_CONFIG||{};
+  const domain=name+'.'+(cfg.baseDomain||'example.com');
+  const dbHost=cfg.dbHost||'127.0.0.1:5432';
+  const dbUser=cfg.dbUser||'postiz-user';
+  const redisHost=cfg.redisHost||'127.0.0.1:6379';
+  const uploadBase=cfg.uploadBase||'/home/petros/postiz-uploads';
   const btn=$('addBtn');btn.disabled=true;btn.textContent='...';
   try{
     const r=await fetch('/api/admin/tenants',{method:'POST',headers:hdr(),body:JSON.stringify({
       id:name,hosts:[domain],
-      database_url:'postgresql://postiz-user:postiz-password@postiz-postgres:5432/postiz-'+name,
-      redis_url:'redis://postiz-redis:6379',
+      database_url:'postgresql://'+dbUser+':postiz-password@'+dbHost+'/postiz-'+name,
+      redis_url:'redis://'+redisHost,
       jwt_secret:[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,'0')).join(''),
       frontend_url:'https://'+domain,
-      upload_dir:'/uploads/'+name,
+      upload_dir:uploadBase+'/'+name,
       social:{}
     })});
     const d=await r.json();
