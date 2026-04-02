@@ -90,7 +90,7 @@ func handleSocialConnectReal(store *db.Store, rdb *redis.Client) http.HandlerFun
 			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeTikTokToken(body.Code, body.CodeVerifier, socialKeys, frontendURL)
 		case "x":
 			codeVerifier, _ := rdb.Get(ctx, "login:"+body.State).Result()
-			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeXToken(body.Code, codeVerifier, socialKeys)
+			accessToken, refreshToken, userID, userName, picture, username, expiresIn, err = exchangeXToken(body.Code, codeVerifier, frontendURL, socialKeys)
 		case "telegram":
 			// Telegram: connect with shared bot token immediately
 			var botToken string
@@ -415,7 +415,7 @@ func exchangeTikTokToken(code, codeVerifier string, keys *tenant.SocialKeys, fro
 
 // ── X / Twitter token exchange (OAuth 1.0a) ──────────────────
 
-func exchangeXToken(code, codeVerifier string, keys *tenant.SocialKeys) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
+func exchangeXToken(code, codeVerifier, frontendURL string, keys *tenant.SocialKeys) (accessToken, refreshToken, userID, userName, picture, username string, expiresIn int, err error) {
 	if codeVerifier == "" {
 		return "", "", "", "", "", "", 0, fmt.Errorf("missing code verifier (OAuth state expired)")
 	}
@@ -430,7 +430,7 @@ func exchangeXToken(code, codeVerifier string, keys *tenant.SocialKeys) (accessT
 	formData := url.Values{
 		"code":          {code},
 		"grant_type":    {"authorization_code"},
-		"redirect_uri":  {"https://postiz.1h00d.com/integrations/social/x"},
+		"redirect_uri":  {frontendURL + "/integrations/social/x"},
 		"code_verifier": {codeVerifier},
 	}
 
