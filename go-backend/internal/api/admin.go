@@ -23,6 +23,7 @@ type adminConfig struct {
 	BaseDomain string
 	DBHost     string
 	DBUser     string
+	DBPassword string
 	RedisHost  string
 	UploadBase string
 }

@@ -43,18 +43,35 @@ func resolveAdminConfig(tm *tenant.TenantManager) adminConfig {
 	if uploadBase == "" {
 		uploadBase = "/home/petros/postiz-uploads"
 	}
+	dbHost := os.Getenv("ADMIN_DB_HOST")
+	if dbHost == "" {
+		dbHost = "127.0.0.1:5433"
+	}
+	dbUser := os.Getenv("ADMIN_DB_USER")
+	if dbUser == "" {
+		dbUser = "postiz-user"
+	}
+	dbPassword := os.Getenv("ADMIN_DB_PASSWORD")
+	if dbPassword == "" {
+		dbPassword = "postiz-password"
+	}
+	redisHost := os.Getenv("ADMIN_REDIS_HOST")
+	if redisHost == "" {
+		redisHost = "127.0.0.1:6380"
+	}
 	return adminConfig{
 		BaseDomain: baseDomain,
-		DBHost:     "127.0.0.1:5432",
-		DBUser:     "postiz-user",
-		RedisHost:  "127.0.0.1:6379",
+		DBHost:     dbHost,
+		DBUser:     dbUser,
+		DBPassword: dbPassword,
+		RedisHost:  redisHost,
 		UploadBase: uploadBase,
 	}
 }
 
 func adminConfigJSON(cfg adminConfig) string {
-	return fmt.Sprintf(`{"baseDomain":%q,"dbHost":%q,"dbUser":%q,"redisHost":%q,"uploadBase":%q}`,
-		cfg.BaseDomain, cfg.DBHost, cfg.DBUser, cfg.RedisHost, cfg.UploadBase)
+	return fmt.Sprintf(`{"baseDomain":%q,"dbHost":%q,"dbUser":%q,"dbPassword":%q,"redisHost":%q,"uploadBase":%q}`,
+		cfg.BaseDomain, cfg.DBHost, cfg.DBUser, cfg.DBPassword, cfg.RedisHost, cfg.UploadBase)
 }
 
 const adminPageHTML = `<!DOCTYPE html>
@@ -211,15 +228,16 @@ async function add(){
   if(!name){$('name').focus();return}
   const cfg=window.__ADMIN_CONFIG||{};
   const domain=name+'.'+(cfg.baseDomain||'example.com');
-  const dbHost=cfg.dbHost||'127.0.0.1:5432';
+  const dbHost=cfg.dbHost||'127.0.0.1:5433';
   const dbUser=cfg.dbUser||'postiz-user';
-  const redisHost=cfg.redisHost||'127.0.0.1:6379';
+  const dbPassword=cfg.dbPassword||'postiz-password';
+  const redisHost=cfg.redisHost||'127.0.0.1:6380';
   const uploadBase=cfg.uploadBase||'/home/petros/postiz-uploads';
   const btn=$('addBtn');btn.disabled=true;btn.textContent='...';
   try{
     const r=await fetch('/api/admin/tenants',{method:'POST',headers:hdr(),body:JSON.stringify({
       id:name,hosts:[domain],
-      database_url:'postgresql://'+dbUser+':postiz-password@'+dbHost+'/postiz-'+name,
+      database_url:'postgresql://'+dbUser+':'+dbPassword+'@'+dbHost+'/postiz-'+name,
       redis_url:'redis://'+redisHost,
       jwt_secret:[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,'0')).join(''),
       frontend_url:'https://'+domain,

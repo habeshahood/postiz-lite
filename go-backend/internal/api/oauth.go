@@ -25,7 +25,7 @@ import (
 func NewRedisClient() *redis.Client {
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisURL = "redis://localhost:6379" // acceptable for single-tenant
+		redisURL = "redis://127.0.0.1:6380" // single-tenant default — matches Docker Redis port
 	}
 	opts, err := redis.ParseURL(redisURL)
 	if err != nil {
