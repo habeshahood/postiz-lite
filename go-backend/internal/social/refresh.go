@@ -90,8 +90,8 @@ func refreshFacebook(ctx context.Context, integration *db.Integration) (*Refresh
 
 	// Facebook long-lived token exchange using the current access token
 	u := fmt.Sprintf(
-		"https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=%s&client_secret=%s&fb_exchange_token=%s",
-		keys.FacebookAppID, keys.FacebookSecret, integration.Token,
+		"%s/oauth/access_token?grant_type=fb_exchange_token&client_id=%s&client_secret=%s&fb_exchange_token=%s",
+		fbGraphBase, keys.FacebookAppID, keys.FacebookSecret, integration.Token,
 	)
 
 	resp, err := http.Get(u)
