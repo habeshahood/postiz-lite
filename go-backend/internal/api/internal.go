@@ -994,9 +994,13 @@ func handleCopilotChat() http.HandlerFunc {
 				}
 			}
 			if !hasSystem {
+				prompt := tenant.GetAIPrompt(r.Context())
+				if prompt == "" {
+					prompt = "You are a social media content assistant. Help users write engaging posts for X (Twitter), TikTok, YouTube, Facebook, and Instagram. Be creative, concise, and match the platform's style. Use hashtags where appropriate. Keep tweets under 280 characters."
+				}
 				sys := map[string]any{
 					"role":    "system",
-					"content": "You are a social media content assistant for 1hood. Help users write engaging posts for X (Twitter), TikTok, YouTube, Facebook, and Instagram. Be creative, concise, and match the platform's style. Use hashtags where appropriate. Keep tweets under 280 characters.",
+					"content": prompt,
 				}
 				req["messages"] = append([]any{sys}, msgs...)
 			}

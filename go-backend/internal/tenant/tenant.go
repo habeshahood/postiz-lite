@@ -33,6 +33,7 @@ type Config struct {
 	JWTSecret   string     `json:"jwt_secret"`
 	FrontendURL string     `json:"frontend_url"`
 	UploadDir   string     `json:"upload_dir"`
+	AIPrompt    string     `json:"ai_prompt,omitempty"`
 	Social      SocialKeys `json:"social"`
 }
 
@@ -74,6 +75,7 @@ const (
 	frontendURLKey ctxKey = "tenantFrontendURL"
 	uploadDirKey   ctxKey = "tenantUploadDir"
 	tenantIDKey    ctxKey = "tenantID"
+	aiPromptKey    ctxKey = "tenantAIPrompt"
 )
 
 func WithSocialKeys(ctx context.Context, keys *SocialKeys) context.Context {
@@ -109,5 +111,14 @@ func WithTenantID(ctx context.Context, id string) context.Context {
 
 func GetTenantID(ctx context.Context) string {
 	s, _ := ctx.Value(tenantIDKey).(string)
+	return s
+}
+
+func WithAIPrompt(ctx context.Context, prompt string) context.Context {
+	return context.WithValue(ctx, aiPromptKey, prompt)
+}
+
+func GetAIPrompt(ctx context.Context) string {
+	s, _ := ctx.Value(aiPromptKey).(string)
 	return s
 }

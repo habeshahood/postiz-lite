@@ -184,6 +184,7 @@ func buildTenantRouter(store *db.Store, cfg tenant.Config, rdb *redis.Client) ch
 			c = tenant.WithSocialKeys(c, &socialKeys)
 			c = tenant.WithFrontendURL(c, frontendURL)
 			c = tenant.WithUploadDir(c, uploadDir)
+			c = tenant.WithAIPrompt(c, cfg.AIPrompt)
 			next.ServeHTTP(w, req.WithContext(c))
 		})
 	})
