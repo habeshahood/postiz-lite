@@ -36,7 +36,7 @@ cat > "$ENV_FILE" <<EOF
 # SSOT: go-backend/tenants-native.json
 NEXT_PUBLIC_BACKEND_URL=${FRONTEND_URL}/api
 FRONTEND_URL=${FRONTEND_URL}
-BACKEND_INTERNAL_URL=http://127.0.0.1:3000
+BACKEND_INTERNAL_URL=http://127.0.0.1:5000/api
 JWT_SECRET=not-used-at-runtime-multi-tenant-reads-from-tenants-native-json
 STORAGE_PROVIDER=local
 NEXT_PUBLIC_UPLOAD_DIRECTORY=/uploads
