@@ -20,11 +20,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// NewRedisClient creates a Redis client from the REDIS_URL env var.
+// NewRedisClient creates a Redis client for single-tenant mode only.
+// Multi-tenant uses per-tenant Redis from tenant config.
 func NewRedisClient() *redis.Client {
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		redisURL = "redis://localhost:6379"
+		redisURL = "redis://localhost:6379" // acceptable for single-tenant
 	}
 	opts, err := redis.ParseURL(redisURL)
 	if err != nil {

@@ -130,7 +130,9 @@ func handleCreateTenant(tm *tenant.TenantManager, tenantsFile string, buildRoute
 		// Connect to Redis
 		redisURL := req.RedisURL
 		if redisURL == "" {
-			redisURL = "redis://localhost:6379"
+			pool.Close()
+			http.Error(w, `{"msg":"redis_url is required"}`, http.StatusBadRequest)
+			return
 		}
 		opts, err := redis.ParseURL(redisURL)
 		if err != nil {

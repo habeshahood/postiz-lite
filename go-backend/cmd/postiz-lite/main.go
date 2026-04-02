@@ -59,7 +59,8 @@ func runMultiTenant(configs []tenant.Config, tenantsFile string) {
 		var rdb *redis.Client
 		redisURL := cfg.RedisURL
 		if redisURL == "" {
-			redisURL = "redis://localhost:6379"
+			slog.Error("redis_url is required for tenant", "tenant", cfg.ID)
+			os.Exit(1)
 		}
 		opts, err := redis.ParseURL(redisURL)
 		if err != nil {
