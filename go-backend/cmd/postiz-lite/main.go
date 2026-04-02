@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -197,6 +198,22 @@ func buildTenantRouter(store *db.Store, cfg tenant.Config, rdb *redis.Client) ch
 			return
 		}
 		fmt.Fprintf(w, `{"status":"ok","tenant":"%s"}`, tenantID)
+	})
+
+	// Public runtime config for Next.js SSR — no JWT required.
+	// Only exposes non-sensitive values; never include secrets, keys, or URLs.
+	r.Get("/internal/tenant-config", func(w http.ResponseWriter, req *http.Request) {
+		uploadDirVal := tenant.GetUploadDir(req.Context())
+		if uploadDirVal == "" {
+			uploadDirVal = "/uploads"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		json.NewEncoder(w).Encode(map[string]string{
+			"frontendUrl": tenant.GetFrontendURL(req.Context()),
+			"uploadDir":   uploadDirVal,
+			"tenantId":    tenant.GetTenantID(req.Context()),
+		})
 	})
 
 	r.Handle("/uploads/*", http.StripPrefix("/uploads", http.FileServer(http.Dir(uploadDir))))
