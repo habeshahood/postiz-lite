@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"os"
 	"path/filepath"
@@ -66,16 +67,14 @@ func (s *Store) CreatePostFromAPI(ctx context.Context, orgID string, body map[st
 }
 
 // SaveMediaFromUpload streams a multipart file to the configured upload
-// directory (UPLOAD_DIR env var, default "./uploads"), then persists a Media
-// row. The caller is responsible for closing src.
+// directory (from tenant context), then persists a Media row.
+// The caller is responsible for closing src.
 func (s *Store) SaveMediaFromUpload(ctx context.Context, orgID, filename string, src io.Reader) (*Media, error) {
-	// Use per-tenant upload dir from context (multi-tenant), fall back to env var (single-tenant)
+	// Always use per-tenant upload dir from context
 	uploadDir := tenant.GetUploadDir(ctx)
 	if uploadDir == "" {
-		uploadDir = os.Getenv("UPLOAD_DIR")
-	}
-	if uploadDir == "" {
-		uploadDir = "./uploads"
+		uploadDir = "/tmp/postiz-uploads"
+		slog.Warn("upload_dir not set for tenant, using fallback", "tenant", tenant.GetTenantID(ctx))
 	}
 
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {

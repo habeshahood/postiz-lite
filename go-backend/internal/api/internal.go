@@ -589,7 +589,8 @@ func handleSaveMedia(store *db.Store) http.HandlerFunc {
 
 		uploadDir := tenant.GetUploadDir(r.Context())
 		if uploadDir == "" {
-			uploadDir = "/uploads"
+			uploadDir = "/tmp/postiz-uploads"
+			slog.Warn("upload_dir not set for tenant, using fallback", "tenant", tenant.GetTenantID(r.Context()))
 		}
 
 		// The file was already saved by handleUpload at uploadDir/name
