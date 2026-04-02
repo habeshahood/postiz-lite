@@ -53,7 +53,8 @@ func handleSocialOAuthURLReal(store *db.Store, rdb *redis.Client) http.HandlerFu
 
 		frontendURL := tenant.GetFrontendURL(r.Context())
 		if frontendURL == "" {
-			frontendURL = "https://postiz.1h00d.com"
+			http.Error(w, `{"msg":"Tenant frontend_url not configured"}`, http.StatusInternalServerError)
+			return
 		}
 
 		refresh := r.URL.Query().Get("refresh")
