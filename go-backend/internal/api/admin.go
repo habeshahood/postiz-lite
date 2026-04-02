@@ -266,6 +266,17 @@ func handleCreateMember(tm *tenant.TenantManager) http.HandlerFunc {
 
 		user, err := store.CreateUser(r.Context(), body.Email, &hashStr, db.ProviderLocal, 0)
 		if err != nil {
+			// Get-or-create: if the user already exists, look them up instead of failing.
+			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+				user, err = store.GetUserByEmail(r.Context(), body.Email)
+				if err != nil {
+					http.Error(w, fmt.Sprintf(`{"msg":"User exists but lookup failed: %s"}`, err), http.StatusInternalServerError)
+					return
+				}
+				orgID, _ := store.GetUserDefaultOrgID(r.Context(), user.ID)
+				writeJSON(w, http.StatusOK, map[string]any{"id": user.ID, "email": user.Email, "organizationId": orgID})
+				return
+			}
 			http.Error(w, fmt.Sprintf(`{"msg":"Failed to create user: %s"}`, err), http.StatusInternalServerError)
 			return
 		}
