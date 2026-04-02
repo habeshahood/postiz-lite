@@ -105,17 +105,78 @@ func runMultiTenant(configs []tenant.Config, tenantsFile string) {
 	// Admin router wraps the tenant dispatcher and exposes admin endpoints.
 	adminRouter := chi.NewRouter()
 	api.RegisterAdmin(adminRouter, tm, tenantsFile, buildTenantRouter)
-	// Wrap: admin routes take priority, everything else falls through to TenantManager.
+
+	// Frontend reverse proxy (Next.js on :4200 with basePath /s).
+	// Replaces Caddy: Go handles both API and frontend on one port.
+	frontendAddr := os.Getenv("FRONTEND_INTERNAL_URL")
+	if frontendAddr == "" {
+		frontendAddr = "http://127.0.0.1:4200"
+	}
+	frontendURL, err := url.Parse(frontendAddr)
+	if err != nil {
+		slog.Error("invalid FRONTEND_INTERNAL_URL", "url", frontendAddr, "error", err)
+		os.Exit(1)
+	}
+	frontendProxy := httputil.NewSingleHostReverseProxy(frontendURL)
+	frontendProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		slog.Warn("frontend proxy error", "path", r.URL.Path, "error", err)
+		http.Error(w, "Frontend unavailable", http.StatusBadGateway)
+	}
+
 	mainHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if the path starts with /admin/ — route to admin router.
-		if strings.HasPrefix(r.URL.Path, "/admin/") || r.URL.Path == "/admin" {
+		path := r.URL.Path
+
+		// Admin routes
+		if strings.HasPrefix(path, "/admin/") || path == "/admin" {
 			adminRouter.ServeHTTP(w, r)
 			return
 		}
-		tm.ServeHTTP(w, r)
+
+		// /s/api/* → strip prefix → tenant API
+		if strings.HasPrefix(path, "/s/api/") || path == "/s/api" {
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = strings.TrimPrefix(path, "/s/api")
+			if r2.URL.Path == "" {
+				r2.URL.Path = "/"
+			}
+			r2.URL.RawPath = ""
+			tm.ServeHTTP(w, r2)
+			return
+		}
+
+		// /api/* → strip prefix → tenant API
+		if strings.HasPrefix(path, "/api/") || path == "/api" {
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = strings.TrimPrefix(path, "/api")
+			if r2.URL.Path == "" {
+				r2.URL.Path = "/"
+			}
+			r2.URL.RawPath = ""
+			tm.ServeHTTP(w, r2)
+			return
+		}
+
+		// Routes the tenant router handles directly (no prefix strip)
+		if strings.HasPrefix(path, "/uploads/") || path == "/health" ||
+			strings.HasPrefix(path, "/internal/") {
+			tm.ServeHTTP(w, r)
+			return
+		}
+
+		// /s/* → proxy to Next.js as-is (basePath is /s)
+		if strings.HasPrefix(path, "/s/") || path == "/s" {
+			frontendProxy.ServeHTTP(w, r)
+			return
+		}
+
+		// Everything else → rewrite to /s{path} → Next.js
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/s" + path
+		r2.URL.RawPath = ""
+		frontendProxy.ServeHTTP(w, r2)
 	})
 
-	port := 3000
+	port := 5000
 	if p := os.Getenv("PORT"); p != "" {
 		fmt.Sscanf(p, "%d", &port)
 	}
