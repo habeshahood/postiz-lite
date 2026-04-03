@@ -26,9 +26,6 @@ export default function AuthBridgePage() {
     }
   }, [searchParams, router])
 
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-      <p>Connecting to scheduler...</p>
-    </div>
-  )
+  // Blank while redirecting — no flash of content
+  return null
 }
