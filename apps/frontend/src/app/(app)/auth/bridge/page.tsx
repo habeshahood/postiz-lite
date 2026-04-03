@@ -3,7 +3,7 @@
 import { Suspense, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 
-function BridgeInner() {
+function BridgeInner(): null {
   const searchParams = useSearchParams()
   const router = useRouter()
 
